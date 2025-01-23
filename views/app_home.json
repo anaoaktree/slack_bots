@@ -1,0 +1,90 @@
+{
+    "type": "home",
+    "blocks": [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "Setup Your AI Assistant",
+                "emoji": true
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Configure your settings to get started with the AI assistant."
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "api_key_block",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "api_key_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Enter your Anthropic API key"
+                }
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Anthropic API Key"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "model_block",
+            "element": {
+                "type": "static_select",
+                "action_id": "model_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select a model"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude 3 Opus"
+                        },
+                        "value": "claude-3-opus-20240229"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude 3 Sonnet"
+                        },
+                        "value": "claude-3-sonnet-20240229"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude 2.1"
+                        },
+                        "value": "claude-2.1"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Default Model"
+            }
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Save Settings",
+                        "emoji": true
+                    },
+                    "style": "primary",
+                    "action_id": "save_settings"
+                }
+            ]
+        }
+    ]
+}
