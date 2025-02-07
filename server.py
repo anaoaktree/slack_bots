@@ -74,7 +74,7 @@ def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> 
     channel = message.get("channel")
     thread_ts = message.get("thread_ts", message.get("ts"))
     logger.info(f"Received message from user {user} in channel {
-        channel} with id {message['client_msg_id']}")
+        channel} with id {message.get('id')}")
     logger.info(f"Message {message}")
     ack()
 
@@ -135,9 +135,8 @@ def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) ->
         )
 
     except Exception as e:
-        print(f"Error in creative-gp command: {str(e)}")
+        logger.error(f"Error in creative-gp command: {str(e)}")
         say(text=f"Sorry, an error occurred: {str(e)} for your message: {body['text']}")
-
 
 if __name__ == "__main__":
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
