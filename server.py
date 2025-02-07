@@ -2,7 +2,6 @@ import os
 import ssl
 import certifi
 import json
-import logging
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
