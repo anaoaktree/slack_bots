@@ -31,3 +31,10 @@ A Slack bot powered by the most popular LLMs that provide intelligent responses 
 - PDF document processing support (up to 32MB) with citations for claude sonnet
 - Home tab with settings configuration
 - Support for Claude 3.5 models (Sonnet and Haiku)
+
+
+
+## Up next
+- Make it async with aiothttp
+- Add database and fix home tab
+- Add more LLMs (decide if creating different apps or use commands)
