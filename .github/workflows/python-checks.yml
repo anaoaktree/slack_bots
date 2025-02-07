@@ -2,9 +2,10 @@ name: Python Checks
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - '*'  # Run on all branches
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main"]
 
 jobs:
   quality-checks:
