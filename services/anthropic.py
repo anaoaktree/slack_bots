@@ -3,9 +3,11 @@ from typing import Dict, List
 
 import anthropic
 from dotenv import load_dotenv
+from utils import setup_logger
 
 load_dotenv()
 
+logger = setup_logger(__name__)
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -35,4 +37,26 @@ def get_standard_claude_response(conversation: List[Dict]) -> str:
         system=open("prompts/assistant_prompt.txt", "r").read(),
         messages=conversation,
     )
-    return claude_message.content[0].text
+    
+    # Handle potential multiple content blocks
+    response = []
+    for content in claude_message.content:
+        if content.type != "text":
+            continue
+            
+        response.append(content.text)
+        
+        # Log and add citations if present
+        if hasattr(content, 'citations') and content.citations:
+            logger.info(f"Citations found: {len(content.citations)} citations")
+            citations = []
+            for citation in content.citations:
+                logger.debug(f"Citation details: {citation}")
+                citations.append(
+                    f"\t<cited_text>{citation.cited_text}</cited_text> "
+                    f"(from {citation.document_title})"
+                )
+            if citations:
+                response.append("\n" + "\n".join(citations))
+    
+    return "\n".join(response)

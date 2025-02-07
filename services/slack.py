@@ -1,5 +1,7 @@
 import re
-from typing import Dict, List
+import base64
+from typing import Dict, List, Optional, Tuple
+import requests
 
 from utils import setup_logger
 
@@ -25,7 +27,7 @@ def get_thread_history(client, channel: str, thread_ts: str) -> List[Dict]:
                 break
             cursor = result["response_metadata"]["next_cursor"]
         except Exception as e:
-            print(f"Error fetching thread history: {e}")
+            logger.error(f"Error fetching thread history: {e}")
             break
     return messages
 
@@ -40,10 +42,50 @@ def get_conversation_history(
     for msg in messages:
         role = "assistant" if msg.get("user") == bot_user_id else "user"
         msg_text = clean_user_mentions(msg["text"])
-        logger.info(f"MSG INSIDE GET CONVO HIST {msg['ts']}")
+        content = []
 
-        conversation.append(
-            {"role": role, "content": [{"type": "text", "text": msg_text}]}
-        )
+        # Handle any files in the message
+        files = msg.get('files', [])
+        for file in files:
+            if _is_valid_pdf(file):
+                try:
+                    response = client.files_info(file=file['id'])
+                    url = response['file']['url_private']
+                    headers = {'Authorization': f'Bearer {client.token}'}
+                    response = requests.get(url, headers=headers)
+                    file_content = base64.b64encode(response.content).decode('utf-8')
+                    
+                    content.append({
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": file_content
+                        },
+                        "citations": {"enabled": True}
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing file {file.get('name')}: {str(e)}")
+
+        # Add text content if present
+        if msg_text:
+            content.append({"type": "text", "text": msg_text})
+
+        conversation.append({"role": role, "content": content})
 
     return conversation
+
+# TODO: add Max page count and make sure it applies to all files
+def _is_valid_pdf(file: Dict) -> bool:
+    """
+    Validate if file is a PDF and meets Claude's requirements:
+    - Must be PDF
+    - Must be under 32MB
+    """
+    MAX_SIZE_MB = 32
+    MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
+    
+    is_pdf = file.get('mimetype') == 'application/pdf'
+    size_ok = file.get('size', float('inf')) <= MAX_SIZE_BYTES
+    
+    return is_pdf and size_ok
