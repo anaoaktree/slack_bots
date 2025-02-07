@@ -1,7 +1,8 @@
 import json
 import os
 import ssl
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+import logging
 
 import certifi
 from dotenv import load_dotenv
