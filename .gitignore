@@ -211,3 +211,6 @@ ENV/
 .env
 .coverage
 htmlcov/
+
+
+mynotes.md
