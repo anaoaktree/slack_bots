@@ -29,6 +29,27 @@ def get_creative_claude_response(conversation: List[Dict]) -> str:
     return claude_message.content[0].text
 
 
+async def async_standard_claude_response(conversation: List[Dict]) -> str:
+    """Generate standard text using Claude API asynchronously."""
+    client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    
+    async with client as c:
+        message = await c.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=2000,
+            system=open("prompts/assistant_prompt.txt", "r").read(),
+            messages=conversation
+        )
+    
+    response = []
+    for content in message.content:
+        if content.type != "text":
+            continue
+        response.append(content.text)
+    
+    return "\n".join(response)
+
+
 def get_standard_claude_response(conversation: List[Dict]) -> str:
     """Generate standard text using Claude API."""
     claude_message = claude.messages.create(

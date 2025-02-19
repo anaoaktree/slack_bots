@@ -13,6 +13,69 @@ def clean_user_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
+async def async_thread_history(client, channel: str, thread_ts: str) -> List[Dict]:
+    """Fetch thread history from Slack asynchronously."""
+    messages = []
+    cursor = None
+    while True:
+        try:
+            result = await client.conversations_replies(
+                channel=channel, ts=thread_ts, cursor=cursor, limit=100
+            )
+            messages.extend(result["messages"])
+            if not result.get("has_more", False):
+                break
+            cursor = result["response_metadata"]["next_cursor"]
+        except Exception as e:
+            logger.error(f"Error fetching thread history: {e}")
+            break
+    return messages
+
+async def async_conversation_history(
+    client, channel: str, thread_ts: str, bot_user_id: str
+) -> List[Dict]:
+    """Convert Slack thread history to Claude conversation format asynchronously."""
+    conversation = []
+    messages = await get_thread_history(client, channel, thread_ts)
+
+    for msg in messages:
+        role = "assistant" if msg.get("user") == bot_user_id else "user"
+        msg_text = clean_user_mentions(msg["text"])
+        content = []
+
+        # Handle any files in the message
+        files = msg.get('files', [])
+        for file in files:
+            if _is_valid_pdf(file):
+                try:
+                    response = await client.files_info(file=file['id'])
+                    url = response['file']['url_private']
+                    headers = {'Authorization': f'Bearer {client.token}'}
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers) as response:
+                            file_content = base64.b64encode(await response.read()).decode('utf-8')
+                    
+                    content.append({
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": file_content
+                        },
+                        "citations": {"enabled": True}
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing file {file.get('name')}: {str(e)}")
+
+        # Add text content if present
+        if msg_text:
+            content.append({"type": "text", "text": msg_text})
+
+        conversation.append({"role": role, "content": content})
+
+    return conversation
+
 def get_thread_history(client, channel: str, thread_ts: str) -> List[Dict]:
     """Fetch thread history from Slack."""
     messages = []

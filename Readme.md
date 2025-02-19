@@ -35,6 +35,6 @@ A Slack bot powered by the most popular LLMs that provide intelligent responses 
 
 
 ## Up next
-- Make it async with aiothttp
+- Make it async with aiothttp https://tools.slack.dev/bolt-python/concepts/async/
 - Add database and fix home tab
 - Add more LLMs (decide if creating different apps or use commands)
