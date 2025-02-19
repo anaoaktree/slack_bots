@@ -62,6 +62,7 @@ def handle_save_settings(
     ack()
     logger.info(body)
 # https://tools.slack.dev/node-slack-sdk/tutorials/local-development/
+# https://api.slack.com/apis/events-api
 @app.route("/event", methods=["POST"])
 def slack_event_handler():
     # Get the JSON payload
@@ -122,7 +123,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         )["messages"][0]
         tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
 
-    if not (
+    if bot_user_id != user and not (
         channel_type == "im"
         or f"<@{bot_user_id}>" in message.get("text", "")
         or tagged_in_parent
