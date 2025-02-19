@@ -138,9 +138,9 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
     response_text = f"<@{user}>{claude_reply}"
     if channel_type == "im":
         logger.info(f"Successfully sent response to user {user}")
-        client.chat_postMessage(text=response_text)
+        client.chat_postMessage(text=response_text, channel=channel)
     else:
-        client.chat_postMessage(text=response_text, thread_ts=thread_ts)
+        client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
 
 # TODO
 # @app.command("/creative-gp")
