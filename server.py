@@ -91,8 +91,7 @@ def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> 
     user = message.get("user")
     channel = message.get("channel")
     thread_ts = message.get("thread_ts", message.get("ts"))
-    logger.info(f"Received message from user {user} in channel {
-        channel} with id {message.get('id')}")
+    logger.info(f"Received message from user {user} in channel {channel} with id {message.get('id')}")
     logger.info(f"Message {message}")
     ack()
 
