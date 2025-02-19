@@ -6,9 +6,8 @@ import logging
 
 import certifi
 from dotenv import load_dotenv
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-
+from slack_sdk import WebClient
+from flask import Flask, jsonify, request
 from services import (
     get_conversation_history,
     get_creative_claude_response,
@@ -25,12 +24,10 @@ load_dotenv()
 # TODO logging.DEBUG to examine the 'ignore self reply' mode
 logger = setup_logger(__name__)
 
-# TODO make it async https://tools.slack.dev/bolt-python/concepts/async
+# https://tools.slack.dev/python-slack-sdk/installation/#handling-tokens
+
 # App Initialization
-app = App(
-    token=os.environ.get("SLACK_BOT_TOKEN"),
-    signing_secret=os.environ.get("SLACK_SIGNING_SECRET"),
-)
+app = Flask(__name__)
 
 
 def load_json_view(file_name: str) -> Dict[str, Any]:
@@ -42,7 +39,7 @@ def load_json_view(file_name: str) -> Dict[str, Any]:
 
 
 # Event Handlers
-@app.event("app_home_opened")
+# @app.event("app_home_opened")
 def update_home_tab(
     client: Any, event: Dict[str, Any], logger: logging.Logger, ack: Any
 ) -> None:
@@ -55,7 +52,7 @@ def update_home_tab(
         logger.error(f"Error publishing home tab: {e}")
 
 
-@app.action("save_settings")
+# @app.action("save_settings")
 def handle_save_settings(
     ack: Any, body: Dict[str, Any], logger: logging.Logger
 ) -> None:
@@ -63,9 +60,30 @@ def handle_save_settings(
     # TODO
     ack()
     logger.info(body)
+# https://tools.slack.dev/node-slack-sdk/tutorials/local-development/
+@app.route("/event", methods=["POST"])
+def slack_event_handler():
+    # Get the JSON payload
+    payload = request.get_json()
+    logger.debug(f"Received Slack event payload: {json.dumps(payload, indent=2)}")
+
+    # Handle Slack URL verification
+    if payload.get("type") == "url_verification":
+        return jsonify({"challenge": payload["challenge"]})
+
+    # Handle other events
+    event = payload.get("event", {})
+    event_type = event.get("type")
+    
+    logger.info(f"Received Slack event type: {event_type}")
+
+    # TODO: Add your event handling logic here
+    
+    # Return a 200 OK response to acknowledge receipt
+    return jsonify({"status": "ok"})
 
 
-@app.event("message")
+# TODO:
 def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> None:
     """Handle incoming messages."""
     channel_type = message.get("channel_type")
@@ -107,7 +125,7 @@ def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> 
         say(text=response_text, thread_ts=thread_ts)
 
 
-@app.command("/creative-gp")
+# @app.command("/creative-gp")
 def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) -> None:
     """Handle creative GP command."""
     user_id = body.get("user_id")
@@ -138,5 +156,9 @@ def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) ->
         logger.error(f"Error in creative-gp command: {str(e)}")
         say(text=f"Sorry, an error occurred: {str(e)} for your message: {body['text']}")
 
+@app.route("/", methods=["GET"])
+def hello():
+    return "<html><body><h1>Hello World</h1></body></html>"
+
 if __name__ == "__main__":
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    app.run(host="0.0.0.0", port=3000)

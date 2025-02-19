@@ -1,5 +1,6 @@
 python-dotenv
-slack_bolt
+slack_sdk
+flask
 anthropic
 certifi
 
