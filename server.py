@@ -106,6 +106,10 @@ message in channel (no mention)
 
 # TODO:
 def handle_message(message: Dict[str, Any], client: WebClient) -> None:
+    # Initialize processed messages dict if it doesn't exist - TODO move this to a db
+    if not hasattr(handle_message, 'processed_messages'):
+        handle_message.processed_messages = {}
+
     """Handle incoming messages."""
     bot_user_id = client.auth_test()["user_id"]
     user = message.get("user")
@@ -118,6 +122,18 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
     channel_type = message.get("channel_type") 
     channel = message.get("channel")
     thread_ts = message.get("thread_ts", message.get("ts"))
+    message_ts = message.get("ts")
+
+    # Add deduplication check using message timestamp. Check if message was already processed in this thread TODO: move this to a db
+    thread_messages = handle_message.processed_messages.get(thread_ts, set())
+    if message_ts in thread_messages:
+        logger.info(f"Skipping duplicate message {message_ts} in thread {thread_ts}")
+        return
+    # Store message as processed
+    if thread_ts not in handle_message.processed_messages:
+        handle_message.processed_messages[thread_ts] = set()
+    handle_message.processed_messages[thread_ts].add(message_ts)
+
     logger.info(f"Received message from user {user} in channel {channel} with id {message.get('id')}")
     logger.info(f"Message {message}")
 
