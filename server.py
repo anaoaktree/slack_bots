@@ -65,7 +65,7 @@ def handle_save_settings(
 def slack_event_handler():
     # Get the JSON payload
     payload = request.get_json()
-    logger.debug(f"Received Slack event payload: {json.dumps(payload, indent=2)}")
+    logger.info(f"Received Slack event payload: {json.dumps(payload, indent=2)}")
 
     # Handle Slack URL verification
     if payload.get("type") == "url_verification":
