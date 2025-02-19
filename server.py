@@ -107,9 +107,15 @@ message in channel (no mention)
 # TODO:
 def handle_message(message: Dict[str, Any], client: WebClient) -> None:
     """Handle incoming messages."""
-    channel_type = message.get("channel_type") 
     bot_user_id = client.auth_test()["user_id"]
     user = message.get("user")
+    
+    # Ignoreif the message is from the bot itself
+    if user == bot_user_id:
+        logger.info("Skipping bot's own message")
+        return
+
+    channel_type = message.get("channel_type") 
     channel = message.get("channel")
     thread_ts = message.get("thread_ts", message.get("ts"))
     logger.info(f"Received message from user {user} in channel {channel} with id {message.get('id')}")
@@ -123,11 +129,13 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         )["messages"][0]
         tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
 
-    if bot_user_id == user and not (
+    should_respond = (
         channel_type == "im"
         or f"<@{bot_user_id}>" in message.get("text", "")
         or tagged_in_parent
-    ):
+    )
+
+    if not should_respond:
         logger.info("Skipping message")
         return
 
