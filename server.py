@@ -159,6 +159,3 @@ def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) ->
 @app.route("/", methods=["GET"])
 def hello():
     return "<html><body><h1>Hello World</h1></body></html>"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
