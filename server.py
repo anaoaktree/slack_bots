@@ -68,7 +68,7 @@ def slack_event_handler():
     # Get the JSON payload
     payload = request.get_json()
     # TODO: check how to make logger appear in pythonanywhere
-    logger.info(f"Received Slack event payload: {json.dumps(payload, indent=2)}")
+    logger.info(f"Received Slack event payload: {payload}")
 
     # Handle Slack URL verification
     if payload.get("type") == "url_verification":
@@ -123,7 +123,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         )["messages"][0]
         tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
 
-    if bot_user_id != user and not (
+    if bot_user_id == user and not (
         channel_type == "im"
         or f"<@{bot_user_id}>" in message.get("text", "")
         or tagged_in_parent
