@@ -145,6 +145,32 @@ def load_json_view(file_name: str) -> Dict[str, Any]:
         return json.load(file)
 
 
+def truncate_slack_text_recursive(obj: Any, max_length: int = 70) -> Any:
+    """
+    Recursively truncate all text elements in a Slack view to ensure they don't exceed max_length.
+    This prevents Slack API errors due to text being too long.
+    """
+    if isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            if key == "text" and isinstance(value, str):
+                # Truncate text directly
+                if len(value) > max_length:
+                    result[key] = value[:max_length-3] + "..."
+                else:
+                    result[key] = value
+            else:
+                # Recursively process nested objects
+                result[key] = truncate_slack_text_recursive(value, max_length)
+        return result
+    elif isinstance(obj, list):
+        # Process each item in the list
+        return [truncate_slack_text_recursive(item, max_length) for item in obj]
+    else:
+        # Return primitive values unchanged
+        return obj
+
+
 def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
     """Load unified home tab and populate with user's current settings."""
     try:
@@ -166,23 +192,10 @@ def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
         # Update persona dropdowns with actual user personas
         persona_options = []
         for persona in personas:
-            # Construct option text respecting Slack's 76-character limit
+            # Construct option text (global truncation will handle length limits)
             name = persona['name']
             description = persona.get('description', 'Custom persona')
-            
-            # Calculate available space for description (76 - name - " - " - buffer)
-            available_space = 73 - len(name)  # 76 - 3 for " - "
-            
-            if len(description) > available_space:
-                # Truncate description and add ellipsis
-                truncated_desc = description[:available_space-3] + "..."
-                option_text = f"{name} - {truncated_desc}"
-            else:
-                option_text = f"{name} - {description}"
-            
-            # Ensure we never exceed 76 characters
-            if len(option_text) > 76:
-                option_text = option_text[:73] + "..."
+            option_text = f"{name} - {description}"
             
             persona_options.append({
                 "text": {
@@ -237,7 +250,10 @@ def safe_publish_home_tab(user_id: str, view: Dict[str, Any] = None) -> bool:
         if view is None:
             view = update_home_tab_with_user_data(user_id)
         
-        slack_client.views_publish(user_id=user_id, view=view)
+        # Apply text truncation to the entire view to prevent Slack API errors
+        truncated_view = truncate_slack_text_recursive(view)
+        
+        slack_client.views_publish(user_id=user_id, view=truncated_view)
         logger.info(f"Successfully published home tab for user {user_id}")
         return True
         
