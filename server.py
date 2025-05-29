@@ -16,6 +16,11 @@ from services import (
     get_conversation_history,
     get_standard_claude_response,
     ABTestingService,
+    UserPreferencesService,
+    PersonaManager,
+    ChatService,
+    SystemPromptManager,
+    PersonaCreationService
 )
 from utils import setup_logger
 
@@ -53,6 +58,79 @@ if not os.environ.get('FLASK_CLI_RUNNING'):
         except Exception as e:
             logger.warning(f"Could not create database tables: {e}")
 
+# Flask CLI Commands
+@app.cli.command()
+def init_db():
+    """Initialize the database."""
+    db.create_all()
+    print("Database tables created.")
+
+@app.cli.command()
+def populate_defaults():
+    """Populate database with default system prompts and personas."""
+    from services import SystemPromptManager, PersonaManager
+    
+    # Create default system prompts
+    default_prompts = [
+        {
+            'title': 'Assistant',
+            'description': 'General helpful assistant',
+            'content': 'You are a helpful AI assistant. Provide clear, accurate, and balanced responses. Be concise but thorough.'
+        },
+        {
+            'title': 'Creative Writer',
+            'description': 'Expressive and imaginative responses',
+            'content': 'You are a creative and expressive AI assistant. Think outside the box, use vivid language, and bring imagination to your responses. Be artistic and inspiring.'
+        },
+        {
+            'title': 'Technical Analyst',
+            'description': 'Logical and precise analysis',
+            'content': 'You are an analytical AI assistant focused on logic, precision, and data-driven insights. Provide structured, methodical responses with clear reasoning.'
+        },
+        {
+            'title': 'Code Helper',
+            'description': 'Programming assistance',
+            'content': 'You are an expert software engineer. Provide clear, efficient code solutions with explanations. Always include error handling and best practices.'
+        },
+        {
+            'title': 'Writing Coach',
+            'description': 'Style and clarity guidance',
+            'content': 'You are a professional writing coach. Help improve clarity, style, and structure. Provide specific suggestions with examples.'
+        }
+    ]
+    
+    # Use a system user ID for default prompts
+    system_user_id = "SYSTEM_DEFAULT"
+    
+    for prompt_data in default_prompts:
+        try:
+            prompt = SystemPromptManager.create_prompt(
+                user_id=system_user_id,
+                title=prompt_data['title'],
+                content=prompt_data['content'],
+                description=prompt_data['description']
+            )
+            if prompt:
+                # Mark as default
+                from models import SystemPrompt
+                system_prompt = SystemPrompt.query.get(prompt['id'])
+                system_prompt.is_default = True
+                db.session.commit()
+                print(f"Created default prompt: {prompt_data['title']}")
+            else:
+                print(f"Prompt {prompt_data['title']} already exists")
+        except Exception as e:
+            print(f"Error creating prompt {prompt_data['title']}: {e}")
+    
+    print("Default system prompts populated.")
+
+@app.cli.command()
+def reset_db():
+    """Reset the database (dangerous!)."""
+    db.drop_all()
+    db.create_all()
+    print("Database reset complete.")
+
 def load_json_view(file_name: str) -> Dict[str, Any]:
     """Load JSON view file."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,28 +139,71 @@ def load_json_view(file_name: str) -> Dict[str, Any]:
         return json.load(file)
 
 
-# Event Handlers
-# @app.event("app_home_opened")
-def update_home_tab(
-    client: Any, event: Dict[str, Any], logger: logging.Logger, ack: Any
-) -> None:
-    """Handle home tab opening."""
-    ack()
+def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
+    """Load unified home tab and populate with user's current settings."""
     try:
-        view = load_json_view("app_home")
-        client.views_publish(user_id=event["user"], view=view)
+        view = load_json_view("app_home_unified")
+        
+        # Get user preferences and personas
+        user_prefs = UserPreferencesService.get_user_preferences(user_id)
+        personas = PersonaManager.get_user_personas(user_id)
+        
+        # Update mode selector
+        current_mode = "chat_mode" if user_prefs.get('chat_mode_enabled') else "ab_testing"
+        for block in view['blocks']:
+            if block.get('type') == 'section' and block.get('accessory', {}).get('action_id') == 'mode_selector':
+                for option in block['accessory']['options']:
+                    if option['value'] == current_mode:
+                        block['accessory']['initial_option'] = option
+                        break
+        
+        # Update persona dropdowns with actual user personas
+        persona_options = []
+        for persona in personas:
+            persona_options.append({
+                "text": {
+                    "type": "plain_text",
+                    "text": f"{persona['name']} - {persona.get('description', 'Custom persona')}"
+                },
+                "value": str(persona['id'])
+            })
+        
+        # Update all persona selectors
+        for block in view['blocks']:
+            accessory = block.get('accessory', {})
+            action_id = accessory.get('action_id')
+            
+            if action_id in ['ab_persona_a_selector', 'ab_persona_b_selector', 'chat_persona_selector']:
+                if persona_options:
+                    accessory['options'] = persona_options
+                    
+                    # Set initial selections based on user preferences
+                    if action_id == 'ab_persona_a_selector' and user_prefs.get('response_a', {}).get('persona_id'):
+                        persona_id = str(user_prefs['response_a']['persona_id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+                    elif action_id == 'ab_persona_b_selector' and user_prefs.get('response_b', {}).get('persona_id'):
+                        persona_id = str(user_prefs['response_b']['persona_id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+                    elif action_id == 'chat_persona_selector' and user_prefs.get('active_persona_id'):
+                        persona_id = str(user_prefs['active_persona_id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+        
+        return view
+        
     except Exception as e:
-        logger.error(f"Error publishing home tab: {e}")
+        logger.error(f"Error building home tab for user {user_id}: {e}")
+        # Fallback to basic view
+        return load_json_view("app_home_unified")
 
-
-# @app.action("save_settings")
-def handle_save_settings(
-    ack: Any, body: Dict[str, Any], logger: logging.Logger
-) -> None:
-    """Handle settings save action."""
-    # TODO
-    ack()
-    logger.info(body)
 # https://tools.slack.dev/node-slack-sdk/tutorials/local-development/
 # https://api.slack.com/apis/events-api
 @app.route("/event", methods=["POST"])
@@ -99,7 +220,18 @@ def slack_event_handler():
     # Handle other events
     event = payload.get("event", {})
     event_type = event.get("type")
-    if event_type in ["app_mention", "message"]:
+    
+    if event_type == "app_home_opened":
+        user_id = event.get("user")
+        if user_id:
+            try:
+                view = update_home_tab_with_user_data(user_id)
+                slack_client.views_publish(user_id=user_id, view=view)
+                logger.info(f"Published home tab for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error publishing home tab for user {user_id}: {e}")
+    
+    elif event_type in ["app_mention", "message"]:
         handle_message(event, slack_client)
     
     logger.info(f"Received Slack event type: {event_type}")
@@ -111,32 +243,16 @@ def slack_event_handler():
     return jsonify({"status": "ok"})
 
 
-"""
-app mention in channel
-{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "app_mention",#012    "ts": "1739981038.601839",#012    "client_msg_id": "9384d2e3-8e79-47d8-affe-5b946e405acb",#012    "text": "<@U08E1KS5EKU> testing one two three",#012    "team": "T089B7235HT",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "e066k",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "user",#012                "user_id": "U08E1KS5EKU"#012              },#012              {#012                "type": "text",#012                "text": " testing one two three"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981038.601839"#012  },#012  "type": "event_callback",#012  "event_id": "Ev08DM9EK56
-
-
-message in thread (no mention)
-Received Slack event payload: {#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "context_team_id": "T089B7235HT",#012  "context_enterprise_id": null,#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "message",#012    "ts": "1739981735.396829",#012    "client_msg_id": "5a1863d5-a8ec-453b-973f-6c85cfb97930",#012    "text": "Hey what is happening",#012    "team": "T089B7235HT",#012    "thread_ts": "1739981038.601839",#012    "parent_user_id": "U089E23JSJE",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "JxKan",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "text",#012                "text": "Hey what is happening"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981735.396829",#012    "channel_type": "channel"#012  },#012  "ty
-
-# message in thread with mention
-{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "app_mention",#012    "ts": "1739981950.771599",#012    "client_msg_id": "99d82487-2ce6-44d4-8575-a79c3f84beb4",#012    "text": "<@U08E1KS5EKU> message sent in thread with a mention",#012    "team": "T089B7235HT",#012    "thread_ts": "1739981038.601839",#012    "parent_user_id": "U089E23JSJE",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "r8Ac7",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "user",#012                "user_id": "U08E1KS5EKU"#012              },#012              {#012                "type": "text",#012                "text": " message sent in thread with a mention"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C0
-
-message in channel (no mention)
-{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "context_team_id": "T089B7235HT",#012  "context_enterprise_id": null,#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "message",#012    "ts": "1739981963.188539",#012    "client_msg_id": "849168a0-6f73-4a08-aa1e-c23bb1b4a3a9",#012    "text": "Message sent in channel with no mention",#012    "team": "T089B7235HT",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "juN4A",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "text",#012                "text": "Message sent in channel with no mention"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981963.188539",#012    "channel_type": "channel"#012  },#012  "type": "event_callback",#012  "event_id": "E
-"""
-
-# TODO:
 def handle_message(message: Dict[str, Any], client: WebClient) -> None:
+    """Handle incoming messages using ChatService for mode-aware responses."""
     # Initialize processed messages dict if it doesn't exist - TODO move this to a db
     if not hasattr(handle_message, 'processed_messages'):
         handle_message.processed_messages = {}
 
-    """Handle incoming messages."""
     bot_user_id = client.auth_test()["user_id"]
     user = message.get("user")
     
-    # Ignoreif the message is from the bot itself
+    # Ignore if the message is from the bot itself
     if user == bot_user_id:
         logger.info("Skipping bot's own message")
         return
@@ -146,7 +262,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
     thread_ts = message.get("thread_ts", message.get("ts"))
     message_ts = message.get("ts")
 
-    # Add deduplication check using message timestamp. Check if message was already processed in this thread TODO: move this to a db
+    # Add deduplication check using message timestamp
     thread_messages = handle_message.processed_messages.get(thread_ts, set())
     if message_ts in thread_messages:
         logger.info(f"Skipping duplicate message {message_ts} in thread {thread_ts}")
@@ -156,8 +272,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         handle_message.processed_messages[thread_ts] = set()
     handle_message.processed_messages[thread_ts].add(message_ts)
 
-    logger.info(f"Received message from user {user} in channel {channel} with id {message.get('id')}")
-    logger.info(f"Message {message}")
+    logger.info(f"Received message from user {user} in channel {channel}")
 
     # Check if bot should respond
     tagged_in_parent = False
@@ -178,110 +293,109 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         return
 
     conversation = get_conversation_history(client, channel, thread_ts, bot_user_id)
-    logger.info(f"conversation {conversation}")
+    logger.info(f"Got conversation history with {len(conversation)} messages")
 
-    # TODO: add a flag to use A/B testing or not
-    # claude_reply = get_standard_claude_response(conversation)
-
-    # response_text = f"<@{user}>{claude_reply}"
-    # if channel_type == "im":
-    #     logger.info(f"Successfully sent response to user {user}")
-    #     client.chat_postMessage(text=response_text, channel=channel)
-    # else:
-    #     client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
-
-    # A/B testing starts here
     try:
-        # Create A/B test with two different responses
-        ab_test, response_a, response_b = ABTestingService.create_ab_test_responses(
+        # Use ChatService to handle the message based on user's mode
+        result = ChatService.handle_user_message(
             user_id=user,
             channel_id=channel,
             thread_ts=thread_ts,
-            original_prompt=message.get("text", ""),
+            message_text=message.get("text", ""),
             conversation=conversation
         )
         
-        # Create Slack messages with voting buttons
-        message_a = ABTestingService.create_slack_message_with_buttons(
-            response_text=response_a.response_text,
-            variant="A",
-            test_id=ab_test.id,
-            user_id=user
-        )
+        mode = result.get("mode")
+        responses = result.get("responses", [])
+        metadata = result.get("metadata", {})
         
-        message_b = ABTestingService.create_slack_message_with_buttons(
-            response_text=response_b.response_text,
-            variant="B", 
-            test_id=ab_test.id,
-            user_id=user
-        )
+        logger.info(f"ChatService returned mode: {mode}, {len(responses)} responses")
         
-        # Send both responses
-        if channel_type == "im":
-            # Send intro message
-            client.chat_postMessage(
-                text=f"<@{user}> Here are two different responses to your question. Please vote for the one you prefer!",
-                channel=channel
-            )
-            
-            # Send response A
-            resp_a = client.chat_postMessage(
-                channel=channel,
-                **message_a
-            )
-            
-            # Send response B  
-            resp_b = client.chat_postMessage(
-                channel=channel,
-                **message_b
-            )
-            
+        if mode == "chat_mode":
+            # Single persona response
+            if responses:
+                response = responses[0]
+                response_text = f"<@{user}> {response['text']}"
+                
+                if channel_type == "im":
+                    client.chat_postMessage(text=response_text, channel=channel)
+                else:
+                    client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+                    
+                logger.info(f"Sent chat mode response using persona: {response.get('persona_name')}")
+        
+        elif mode == "ab_testing":
+            # A/B testing responses
+            if len(responses) >= 2:
+                # Send intro message
+                intro_text = f"<@{user}> {metadata.get('intro_message', 'Here are two responses:')}"
+                
+                if channel_type == "im":
+                    client.chat_postMessage(text=intro_text, channel=channel)
+                    
+                    # Send response A
+                    resp_a = client.chat_postMessage(
+                        channel=channel,
+                        **responses[0]['slack_message']
+                    )
+                    
+                    # Send response B  
+                    resp_b = client.chat_postMessage(
+                        channel=channel,
+                        **responses[1]['slack_message']
+                    )
+                    
+                else:
+                    client.chat_postMessage(text=intro_text, channel=channel, thread_ts=thread_ts)
+                    
+                    # Send response A in thread
+                    resp_a = client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        **responses[0]['slack_message']
+                    )
+                    
+                    # Send response B in thread
+                    resp_b = client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        **responses[1]['slack_message']
+                    )
+                
+                logger.info(f"Sent A/B testing responses for test {metadata.get('ab_test_id')}")
+        
         else:
-            # Send intro message in thread
-            client.chat_postMessage(
-                text=f"<@{user}> Here are two different responses to your question. Please vote for the one you prefer!",
-                channel=channel,
-                thread_ts=thread_ts
-            )
-            
-            # Send response A in thread
-            resp_a = client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                **message_a
-            )
-            
-            # Send response B in thread
-            resp_b = client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                **message_b
-            )
-        
-        # Update database with Slack message timestamps
-        response_a.slack_message_ts = resp_a["ts"]
-        response_b.slack_message_ts = resp_b["ts"]
-        db.session.commit()
-        
-        logger.info(f"Successfully sent A/B test responses for user {user}")
+            # Fallback or error mode
+            if responses:
+                response_text = f"<@{user}> {responses[0].get('text', 'Sorry, something went wrong.')}"
+                
+                if channel_type == "im":
+                    client.chat_postMessage(text=response_text, channel=channel)
+                else:
+                    client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
         
     except Exception as e:
-        logger.error(f"Error in A/B testing: {e}")
-        # Fallback to standard response
-        claude_reply = get_standard_claude_response(conversation)
-        response_text = f"<@{user}> {claude_reply}"
-        
-        if channel_type == "im":
-            client.chat_postMessage(text=response_text, channel=channel)
-        else:
-            client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+        logger.error(f"Error handling message with ChatService: {e}")
+        # Ultimate fallback
+        try:
+            claude_reply = get_standard_claude_response(conversation)
+            response_text = f"<@{user}> {claude_reply}"
+            
+            if channel_type == "im":
+                client.chat_postMessage(text=response_text, channel=channel)
+            else:
+                client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+                
+            logger.info("Sent fallback response")
+        except Exception as fallback_e:
+            logger.error(f"Even fallback failed: {fallback_e}")
 
 
 @app.route("/interactive", methods=["POST"])
 def handle_interactive_component():
     """Handle Slack interactive components like button clicks."""
     payload = json.loads(request.form.get("payload"))
-    logger.info(f"Received interactive payload: {payload}")
+    logger.info(f"Received interactive payload type: {payload.get('type')}")
     
     # Extract action information
     actions = payload.get("actions", [])
@@ -290,12 +404,324 @@ def handle_interactive_component():
     
     action = actions[0]
     action_id = action.get("action_id")
+    user_id = payload.get("user", {}).get("id")
+    
+    logger.info(f"Processing action: {action_id} for user: {user_id}")
     
     # Handle voting actions
     if action_id in ["vote_a", "vote_b"]:
         return handle_ab_vote(payload, action)
     
+    # Handle mode selection
+    elif action_id == "mode_selector":
+        return handle_mode_selection(payload, action)
+    
+    # Handle A/B persona selections
+    elif action_id in ["ab_persona_a_selector", "ab_persona_b_selector"]:
+        return handle_ab_persona_selection(payload, action)
+    
+    # Handle chat persona selection
+    elif action_id == "chat_persona_selector":
+        return handle_chat_persona_selection(payload, action)
+    
+    # Handle settings save actions
+    elif action_id == "save_ab_settings":
+        return handle_save_ab_settings(payload)
+    
+    elif action_id in ["set_active_persona", "switch_to_chat_mode"]:
+        return handle_chat_mode_actions(payload, action)
+    
+    # Handle persona management actions
+    elif action_id in ["view_personas", "create_persona", "view_analytics"]:
+        return handle_persona_management(payload, action)
+    
+    # Handle modal submissions
+    elif payload.get("type") == "view_submission":
+        return handle_modal_submission(payload)
+    
+    logger.warning(f"Unhandled action: {action_id}")
     return jsonify({"status": "ok"})
+
+
+def handle_mode_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle mode selection between A/B testing and chat mode."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        selected_mode = action.get("selected_option", {}).get("value")
+        
+        if not user_id or not selected_mode:
+            return jsonify({"error": "Missing data"}), 400
+        
+        # Update user's mode preference
+        success = ChatService.set_user_mode(user_id, selected_mode)
+        
+        if success:
+            # Update the home tab
+            view = update_home_tab_with_user_data(user_id)
+            slack_client.views_publish(user_id=user_id, view=view)
+            
+            logger.info(f"Updated mode to {selected_mode} for user {user_id}")
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling mode selection: {e}")
+        return jsonify({"error": "Failed to update mode"}), 500
+
+
+def handle_ab_persona_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle A/B persona selections."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        action_id = action.get("action_id")
+        persona_id = action.get("selected_option", {}).get("value")
+        
+        if not all([user_id, action_id, persona_id]):
+            return jsonify({"error": "Missing data"}), 400
+        
+        # Update the appropriate persona preference
+        response_key = "response_a" if action_id == "ab_persona_a_selector" else "response_b"
+        success = UserPreferencesService.update_ab_persona(user_id, response_key, int(persona_id))
+        
+        if success:
+            logger.info(f"Updated {response_key} persona to {persona_id} for user {user_id}")
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling A/B persona selection: {e}")
+        return jsonify({"error": "Failed to update persona"}), 500
+
+
+def handle_chat_persona_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle chat persona selection."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        persona_id = action.get("selected_option", {}).get("value")
+        
+        if not all([user_id, persona_id]):
+            return jsonify({"error": "Missing data"}), 400
+        
+        # Update active persona (but don't switch mode automatically)
+        success = PersonaManager.set_active_persona(user_id, int(persona_id))
+        
+        if success:
+            logger.info(f"Updated active persona to {persona_id} for user {user_id}")
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling chat persona selection: {e}")
+        return jsonify({"error": "Failed to update active persona"}), 500
+
+
+def handle_save_ab_settings(payload: Dict[str, Any]) -> Any:
+    """Handle saving A/B testing settings."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        
+        # Update home tab to show current settings
+        view = update_home_tab_with_user_data(user_id)
+        slack_client.views_publish(user_id=user_id, view=view)
+        
+        # Send confirmation message
+        slack_client.chat_postMessage(
+            channel=user_id,  # DM the user
+            text="✅ A/B testing settings saved! Your selected personas will be used for future comparisons."
+        )
+        
+        logger.info(f"Saved A/B settings for user {user_id}")
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error saving A/B settings: {e}")
+        return jsonify({"error": "Failed to save settings"}), 500
+
+
+def handle_chat_mode_actions(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle chat mode related actions."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        action_id = action.get("action_id")
+        
+        if action_id == "switch_to_chat_mode":
+            # Switch to chat mode
+            success = ChatService.set_user_mode(user_id, "chat_mode")
+            
+            if success:
+                # Update home tab
+                view = update_home_tab_with_user_data(user_id)
+                slack_client.views_publish(user_id=user_id, view=view)
+                
+                # Send confirmation
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text="✅ Switched to Chat Mode! You'll now chat with your active persona. Use the home tab to switch personas anytime."
+                )
+                
+                logger.info(f"Switched user {user_id} to chat mode")
+        
+        elif action_id == "set_active_persona":
+            # This just confirms the current selection
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text="✅ Active persona confirmed! Switch to Chat Mode to start using it."
+            )
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling chat mode action: {e}")
+        return jsonify({"error": "Failed to process action"}), 500
+
+
+def handle_persona_management(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle persona management actions."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        action_id = action.get("action_id")
+        
+        if action_id == "create_persona":
+            # Open persona creation modal
+            modal = load_json_view("create_persona_form")
+            
+            slack_client.views_open(
+                trigger_id=payload.get("trigger_id"),
+                view=modal
+            )
+            
+        elif action_id == "view_personas":
+            # Show personas list (placeholder for now)
+            personas = PersonaManager.get_user_personas(user_id)
+            
+            text = "🎭 *Your Personas:*\n\n"
+            for persona in personas:
+                text += f"• **{persona['name']}** - {persona.get('description', 'No description')}\n"
+                text += f"  Model: {persona['model']}, Temperature: {persona['temperature']}\n\n"
+            
+            if not personas:
+                text += "No personas found. Create your first persona!"
+            
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text=text
+            )
+            
+        elif action_id == "view_analytics":
+            # Show analytics (placeholder)
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text="📊 Analytics feature coming soon! This will show your persona usage statistics and A/B testing results."
+            )
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling persona management: {e}")
+        return jsonify({"error": "Failed to process action"}), 500
+
+
+def handle_modal_submission(payload: Dict[str, Any]) -> Any:
+    """Handle modal form submissions."""
+    try:
+        view = payload.get("view", {})
+        callback_id = view.get("callback_id")
+        user_id = payload.get("user", {}).get("id")
+        
+        if callback_id == "create_persona":
+            return handle_create_persona_submission(payload, user_id)
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling modal submission: {e}")
+        return jsonify({"error": "Failed to process submission"}), 500
+
+
+def handle_create_persona_submission(payload: Dict[str, Any], user_id: str) -> Any:
+    """Handle persona creation form submission."""
+    try:
+        values = payload.get("view", {}).get("state", {}).get("values", {})
+        
+        # Extract form values
+        persona_name = values.get("persona_name", {}).get("name_input", {}).get("value", "").strip()
+        description = values.get("persona_description", {}).get("description_input", {}).get("value", "").strip()
+        model = values.get("ai_model", {}).get("model_select", {}).get("selected_option", {}).get("value")
+        temperature = float(values.get("temperature", {}).get("temperature_select", {}).get("selected_option", {}).get("value", "0.7"))
+        
+        # System prompt handling
+        prompt_selection = values.get("system_prompt_selector", {}).get("prompt_select", {}).get("selected_option", {})
+        prompt_content = values.get("system_prompt_content", {}).get("prompt_input", {}).get("value", "").strip()
+        
+        # Prompt saving options
+        save_prompt_checked = values.get("system_prompt_content", {}).get("save_prompt_checkbox", {}).get("selected_options", [])
+        save_new_prompt = len(save_prompt_checked) > 0
+        new_prompt_title = values.get("new_prompt_title", {}).get("prompt_title_input", {}).get("value", "").strip()
+        
+        # Validate required fields
+        if not all([persona_name, model, prompt_content]):
+            return jsonify({
+                "response_action": "errors",
+                "errors": {
+                    "persona_name": "Persona name is required" if not persona_name else "",
+                    "ai_model": "Model selection is required" if not model else "",
+                    "system_prompt_content": "System prompt content is required" if not prompt_content else ""
+                }
+            })
+        
+        # Handle existing prompt selection
+        existing_prompt_id = None
+        if prompt_selection and prompt_selection.get("value") != "new_prompt":
+            try:
+                existing_prompt_id = int(prompt_selection.get("value"))
+            except (ValueError, TypeError):
+                pass
+        
+        # Create persona using the creation service
+        success, message, persona = PersonaCreationService.create_persona_with_prompt_handling(
+            user_id=user_id,
+            persona_name=persona_name,
+            description=description,
+            model=model,
+            temperature=temperature,
+            prompt_content=prompt_content,
+            existing_prompt_id=existing_prompt_id,
+            save_new_prompt=save_new_prompt,
+            new_prompt_title=new_prompt_title if new_prompt_title else None
+        )
+        
+        if success:
+            # Update home tab
+            view = update_home_tab_with_user_data(user_id)
+            slack_client.views_publish(user_id=user_id, view=view)
+            
+            # Send confirmation
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text=f"🎉 {message}"
+            )
+            
+            logger.info(f"Created persona '{persona_name}' for user {user_id}")
+            
+            return jsonify({"response_action": "clear"})
+        else:
+            return jsonify({
+                "response_action": "errors", 
+                "errors": {
+                    "persona_name": message if "name" in message.lower() else "",
+                    "system_prompt_content": message if "prompt" in message.lower() else "",
+                    "general": message
+                }
+            })
+        
+    except Exception as e:
+        logger.error(f"Error creating persona: {e}")
+        return jsonify({
+            "response_action": "errors",
+            "errors": {
+                "general": f"Unexpected error: {str(e)}"
+            }
+        })
 
 
 def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
@@ -336,8 +762,9 @@ def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
         # Send confirmation message
         channel_id = payload.get("channel", {}).get("id")
         user_id = payload.get("user", {}).get("id")
+        persona_name = vote_data.get("persona_name", variant)
         
-        confirmation_text = f"<@{user_id}> Thanks for your feedback! You voted for Response {variant}."
+        confirmation_text = f"<@{user_id}> Thanks for your feedback! You voted for Response {variant} ({persona_name})."
         
         slack_client.chat_postMessage(
             channel=channel_id,

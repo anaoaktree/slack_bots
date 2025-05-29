@@ -82,6 +82,39 @@ class UserPreferencesService:
             return False
     
     @staticmethod
+    def update_ab_persona(user_id: str, response_key: str, persona_id: int) -> bool:
+        """Update a single A/B testing persona (either response_a or response_b)."""
+        try:
+            # Verify persona belongs to the user
+            persona = AIPersona.query.filter_by(id=persona_id, user_id=user_id).first()
+            if not persona:
+                logger.error(f"Invalid persona ID {persona_id} for user {user_id}")
+                return False
+            
+            user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+            if not user_prefs:
+                user_prefs = UserPreferences(user_id=user_id)
+                db.session.add(user_prefs)
+            
+            if response_key == "response_a":
+                user_prefs.ab_testing_persona_a_id = persona_id
+            elif response_key == "response_b":
+                user_prefs.ab_testing_persona_b_id = persona_id
+            else:
+                logger.error(f"Invalid response key: {response_key}")
+                return False
+            
+            db.session.commit()
+            
+            logger.info(f"Updated {response_key} persona to {persona_id} for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating {response_key} persona for user {user_id}: {e}")
+            db.session.rollback()
+            return False
+    
+    @staticmethod
     def _get_ab_persona(user_id: str, persona_id: Optional[int], variant: str) -> Dict:
         """Get persona for A/B testing, creating default if needed."""
         if persona_id:
