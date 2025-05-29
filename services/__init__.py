@@ -3,9 +3,11 @@ from services.anthropic import (
     get_standard_claude_response,
 )
 from services.slack import get_conversation_history
+from services.ab_testing import ABTestingService
 
 __all__ = [
     "get_conversation_history",
     "get_creative_claude_response",
     "get_standard_claude_response",
+    "ABTestingService",
 ]

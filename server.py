@@ -8,10 +8,15 @@ import certifi
 from dotenv import load_dotenv
 from slack_sdk import WebClient
 from flask import Flask, jsonify, request
+from flask_migrate import Migrate
+
+from config import config
+from models import db, ABVote
 from services import (
     get_conversation_history,
     get_creative_claude_response,
     get_standard_claude_response,
+    ABTestingService,
 )
 from utils import setup_logger
 
@@ -28,8 +33,21 @@ logger = setup_logger(__name__)
 
 # App Initialization
 app = Flask(__name__)
+
+# Database Configuration
+config_name = os.environ.get('FLASK_ENV', 'development')
+app.config.from_object(config[config_name])
+
+# Initialize database and migration
+db.init_app(app)
+migrate = Migrate(app, db)
+
+# Initialize Slack client
 slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 
+# Create tables if they don't exist (for local development)
+with app.app_context():
+    db.create_all()
 
 def load_json_view(file_name: str) -> Dict[str, Any]:
     """Load JSON view file."""
@@ -158,14 +176,101 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
     conversation = get_conversation_history(client, channel, thread_ts, bot_user_id)
     logger.info(f"conversation {conversation}")
 
-    claude_reply = get_standard_claude_response(conversation)
+    # TODO: add a flag to use A/B testing or not
+    # claude_reply = get_standard_claude_response(conversation)
 
-    response_text = f"<@{user}>{claude_reply}"
-    if channel_type == "im":
-        logger.info(f"Successfully sent response to user {user}")
-        client.chat_postMessage(text=response_text, channel=channel)
-    else:
-        client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+    # response_text = f"<@{user}>{claude_reply}"
+    # if channel_type == "im":
+    #     logger.info(f"Successfully sent response to user {user}")
+    #     client.chat_postMessage(text=response_text, channel=channel)
+    # else:
+    #     client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+
+    # A/B testing starts here
+    try:
+        # Create A/B test with two different responses
+        ab_test, response_a, response_b = ABTestingService.create_ab_test_responses(
+            user_id=user,
+            channel_id=channel,
+            thread_ts=thread_ts,
+            original_prompt=message.get("text", ""),
+            conversation=conversation
+        )
+        
+        # Create Slack messages with voting buttons
+        message_a = ABTestingService.create_slack_message_with_buttons(
+            response_text=response_a.response_text,
+            variant="A",
+            test_id=ab_test.id,
+            user_id=user
+        )
+        
+        message_b = ABTestingService.create_slack_message_with_buttons(
+            response_text=response_b.response_text,
+            variant="B", 
+            test_id=ab_test.id,
+            user_id=user
+        )
+        
+        # Send both responses
+        if channel_type == "im":
+            # Send intro message
+            client.chat_postMessage(
+                text=f"<@{user}> Here are two different responses to your question. Please vote for the one you prefer!",
+                channel=channel
+            )
+            
+            # Send response A
+            resp_a = client.chat_postMessage(
+                channel=channel,
+                **message_a
+            )
+            
+            # Send response B  
+            resp_b = client.chat_postMessage(
+                channel=channel,
+                **message_b
+            )
+            
+        else:
+            # Send intro message in thread
+            client.chat_postMessage(
+                text=f"<@{user}> Here are two different responses to your question. Please vote for the one you prefer!",
+                channel=channel,
+                thread_ts=thread_ts
+            )
+            
+            # Send response A in thread
+            resp_a = client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                **message_a
+            )
+            
+            # Send response B in thread
+            resp_b = client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                **message_b
+            )
+        
+        # Update database with Slack message timestamps
+        response_a.slack_message_ts = resp_a["ts"]
+        response_b.slack_message_ts = resp_b["ts"]
+        db.session.commit()
+        
+        logger.info(f"Successfully sent A/B test responses for user {user}")
+        
+    except Exception as e:
+        logger.error(f"Error in A/B testing: {e}")
+        # Fallback to standard response
+        claude_reply = get_standard_claude_response(conversation)
+        response_text = f"<@{user}> {claude_reply}"
+        
+        if channel_type == "im":
+            client.chat_postMessage(text=response_text, channel=channel)
+        else:
+            client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
 
 # TODO
 # @app.command("/creative-gp")
@@ -202,3 +307,77 @@ def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) ->
 @app.route("/", methods=["GET"])
 def hello():
     return "<html><body><h1>Hello World</h1></body></html>"
+
+@app.route("/interactive", methods=["POST"])
+def handle_interactive_component():
+    """Handle Slack interactive components like button clicks."""
+    payload = json.loads(request.form.get("payload"))
+    logger.info(f"Received interactive payload: {payload}")
+    
+    # Extract action information
+    actions = payload.get("actions", [])
+    if not actions:
+        return jsonify({"status": "ok"})
+    
+    action = actions[0]
+    action_id = action.get("action_id")
+    
+    # Handle voting actions
+    if action_id in ["vote_a", "vote_b"]:
+        return handle_ab_vote(payload, action)
+    
+    return jsonify({"status": "ok"})
+
+
+def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle A/B test voting."""
+    try:
+        # Parse the vote data
+        vote_data = json.loads(action.get("value", "{}"))
+        test_id = vote_data.get("test_id")
+        variant = vote_data.get("variant")
+        voter_user_id = payload.get("user", {}).get("id")
+        
+        if not all([test_id, variant, voter_user_id]):
+            logger.error("Missing required vote data")
+            return jsonify({"error": "Invalid vote data"}), 400
+        
+        # Check if user already voted
+        existing_vote = ABVote.query.filter_by(
+            test_id=test_id, 
+            user_id=voter_user_id
+        ).first()
+        
+        if existing_vote:
+            # Update existing vote
+            existing_vote.chosen_variant = variant
+            logger.info(f"Updated vote for user {voter_user_id} in test {test_id} to variant {variant}")
+        else:
+            # Create new vote
+            new_vote = ABVote(
+                test_id=test_id,
+                user_id=voter_user_id,
+                chosen_variant=variant
+            )
+            db.session.add(new_vote)
+            logger.info(f"Created new vote for user {voter_user_id} in test {test_id} for variant {variant}")
+        
+        db.session.commit()
+        
+        # Send confirmation message
+        channel_id = payload.get("channel", {}).get("id")
+        user_id = payload.get("user", {}).get("id")
+        
+        confirmation_text = f"<@{user_id}> Thanks for your feedback! You voted for Response {variant}."
+        
+        slack_client.chat_postMessage(
+            channel=channel_id,
+            text=confirmation_text,
+            thread_ts=payload.get("message", {}).get("thread_ts")
+        )
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling A/B vote: {e}")
+        return jsonify({"error": "Failed to process vote"}), 500

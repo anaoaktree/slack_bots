@@ -11,7 +11,7 @@ logger = setup_logger(__name__)
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-haiku = "claude-4-haiku-latest"
+haiku = "claude-3-5-haiku-20241022"
 sonnet = "claude-sonnet-4-20250514"
 opus = "claude-opus-4-20250514"
 
