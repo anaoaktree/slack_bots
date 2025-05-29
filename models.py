@@ -64,15 +64,64 @@ class UserPreferences(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(50), unique=True, nullable=False)  # Slack user ID
     
-    # Response A settings
-    response_a_system_prompt = db.Column(db.Text, nullable=True)
-    response_a_model = db.Column(db.String(100), nullable=True)  # 'opus' or 'sonnet'
-    response_a_temperature = db.Column(db.Float, nullable=True)
+    # A/B Testing persona selections (reference existing personas)
+    ab_testing_persona_a_id = db.Column(db.Integer, nullable=True)  # Persona ID for Response A
+    ab_testing_persona_b_id = db.Column(db.Integer, nullable=True)  # Persona ID for Response B
     
-    # Response B settings  
-    response_b_system_prompt = db.Column(db.Text, nullable=True)
-    response_b_model = db.Column(db.String(100), nullable=True)  # 'opus' or 'sonnet'
-    response_b_temperature = db.Column(db.Float, nullable=True)
+    # Chat mode settings
+    chat_mode_enabled = db.Column(db.Boolean, default=False)  # Whether user prefers chat mode
+    active_persona_id = db.Column(db.Integer, nullable=True)  # Currently active persona for chat mode
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SystemPrompt(db.Model):
+    """Stores reusable system prompts that can be shared across personas."""
+    __tablename__ = 'system_prompts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(50), nullable=False)  # Slack user ID of creator
+    title = db.Column(db.String(100), nullable=False)  # Short descriptive name
+    description = db.Column(db.Text, nullable=True)  # Optional longer description
+    content = db.Column(db.Text, nullable=False)  # Full prompt text
+    
+    # Metadata
+    is_default = db.Column(db.Boolean, default=False)  # System-provided defaults
+    usage_count = db.Column(db.Integer, default=0)  # Track how often it's used
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    personas = db.relationship('AIPersona', backref='system_prompt', lazy=True)
+    
+    # Constraints
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'title', name='unique_user_prompt_title'),
+    )
+
+
+class AIPersona(db.Model):
+    """Stores saved AI personas that users can switch between in chat mode."""
+    __tablename__ = 'ai_personas'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(50), nullable=False)  # Slack user ID
+    name = db.Column(db.String(100), nullable=False)  # User-defined persona name
+    description = db.Column(db.Text, nullable=True)  # Optional description
+    
+    # AI configuration
+    model = db.Column(db.String(100), nullable=False)  # 'opus' or 'sonnet'
+    temperature = db.Column(db.Float, nullable=False, default=0.7)
+    system_prompt_id = db.Column(db.Integer, db.ForeignKey('system_prompts.id'), nullable=False)
+    
+    # Metadata
+    is_favorite = db.Column(db.Boolean, default=False)  # User can mark favorites
+    usage_count = db.Column(db.Integer, default=0)  # Track how often it's used
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Constraints
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'name', name='unique_user_persona_name'),
+    ) 

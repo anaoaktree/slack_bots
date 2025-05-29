@@ -14,7 +14,6 @@ from config import config
 from models import db, ABVote
 from services import (
     get_conversation_history,
-    get_creative_claude_response,
     get_standard_claude_response,
     ABTestingService,
 )
@@ -277,41 +276,6 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
         else:
             client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
 
-# TODO
-# @app.command("/creative-gp")
-def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) -> None:
-    """Handle creative GP command."""
-    user_id = body.get("user_id")
-    logger.info(f"Received creative-gp command from user {user_id}")
-    logger.debug(f"Command body: {body}")
-    ack()
-
-    try:
-        bot_id = client.auth_test()["user_id"]
-        response = say(
-            token=os.environ["USER_AUTH_TOKEN"],
-            text=f"<@{bot_id}> {body['text']}",
-            user=user_id,
-        )
-
-        conversation = get_conversation_history(
-            client, body["channel_id"], response["ts"], bot_id
-        )
-        claude_reply = get_creative_claude_response(conversation)
-
-        client.chat_postMessage(
-            channel=body["channel_id"],
-            text=f"[CREATIVE MODE] {claude_reply}",
-            thread_ts=response["ts"],
-        )
-
-    except Exception as e:
-        logger.error(f"Error in creative-gp command: {str(e)}")
-        say(text=f"Sorry, an error occurred: {str(e)} for your message: {body['text']}")
-
-@app.route("/", methods=["GET"])
-def hello():
-    return "<html><body><h1>Hello World</h1></body></html>"
 
 @app.route("/interactive", methods=["POST"])
 def handle_interactive_component():

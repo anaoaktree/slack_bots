@@ -11,30 +11,20 @@ logger = setup_logger(__name__)
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-sonnet = "claude-sonnet-4-20250514"
-opus = "claude-opus-4-20250514"
+MODELS = {
+    "sonnet": "claude-sonnet-4-20250514",
+    "opus": "claude-opus-4-20250514",
+}
 
-
-def get_creative_claude_response(conversation: List[Dict]) -> str:
-    """Generate creative text using Claude API."""
-    # TODO: check if messages race condition is causing multiple api calls.
-    # TODO: add logging
-    claude_message = claude.messages.create(
-        model=opus,
-        temperature=1,
-        max_tokens=2000,
-        system=open("prompts/gp-creative.txt", "r").read(),
-        messages=conversation,
-    )
-    return claude_message.content[0].text
-
-
-def get_standard_claude_response(conversation: List[Dict]) -> str:
+def get_standard_claude_response(conversation: List[Dict], system_prompt: str|None=None, model_name: str|None=None, temperature: float=1.0, max_tokens: int=2000) -> str:
     """Generate standard text using Claude API."""
+    system_prompt = system_prompt or open("prompts/assistant_prompt.txt", "r").read()
+    model_name = MODELS[model_name] if model_name else MODELS["sonnet"]
     claude_message = claude.messages.create(
-        model=sonnet,
-        max_tokens=2000,
-        system=open("prompts/assistant_prompt.txt", "r").read(),
+        model=model_name,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        temperature=temperature,
         messages=conversation,
     )
     

@@ -1,0 +1,162 @@
+{
+  "type": "modal",
+  "callback_id": "ab_persona_selector",
+  "title": {
+    "type": "plain_text",
+    "text": "🆚 A/B Testing Setup"
+  },
+  "submit": {
+    "type": "plain_text",
+    "text": "Save Configuration"
+  },
+  "close": {
+    "type": "plain_text",
+    "text": "Cancel"
+  },
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Configure A/B Testing*\nSelect two personas to compare side-by-side. When you mention the bot, you'll receive both responses and can vote for your preferred one."
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "input",
+      "block_id": "persona_a_selection",
+      "element": {
+        "type": "static_select",
+        "placeholder": {
+          "type": "plain_text",
+          "text": "Choose persona for Response A"
+        },
+        "action_id": "persona_a_select",
+        "options": [
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Assistant - Helpful & balanced"
+            },
+            "value": "1"
+          },
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Creative - Expressive & imaginative"
+            },
+            "value": "2"
+          },
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Analyst - Data-driven & logical"
+            },
+            "value": "3"
+          }
+        ]
+      },
+      "label": {
+        "type": "plain_text",
+        "text": "Response A Persona"
+      }
+    },
+    {
+      "type": "input",
+      "block_id": "persona_b_selection",
+      "element": {
+        "type": "static_select",
+        "placeholder": {
+          "type": "plain_text",
+          "text": "Choose persona for Response B"
+        },
+        "action_id": "persona_b_select",
+        "options": [
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Assistant - Helpful & balanced"
+            },
+            "value": "1"
+          },
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Creative - Expressive & imaginative"
+            },
+            "value": "2"
+          },
+          {
+            "text": {
+              "type": "plain_text",
+              "text": "Analyst - Data-driven & logical"
+            },
+            "value": "3"
+          }
+        ]
+      },
+      "label": {
+        "type": "plain_text",
+        "text": "Response B Persona"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Current Configuration Preview:*"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "📋 *Response A:* Assistant (Sonnet, 0.3 temp)\n📋 *Response B:* Creative (Opus, 1.0 temp)"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Need a custom persona for testing?*"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "➕ Create Response A Persona"
+          },
+          "action_id": "create_persona_a",
+          "style": "primary"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "➕ Create Response B Persona"
+          },
+          "action_id": "create_persona_b",
+          "style": "primary"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "💡 *Tip:* Try comparing personas with different temperatures (creativity levels) or system prompts for interesting insights!"
+        }
+      ]
+    }
+  ]
+} 

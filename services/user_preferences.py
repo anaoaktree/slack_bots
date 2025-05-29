@@ -1,205 +1,159 @@
 import os
-from typing import Dict, Any, Optional
-from models import db, UserPreferences
+from typing import Dict, Optional
+from models import db, UserPreferences, AIPersona
+from services.persona_manager import PersonaManager
 from utils import setup_logger
 
 logger = setup_logger(__name__)
 
 
 class UserPreferencesService:
-    """Service for managing user-specific A/B testing preferences."""
-    
-    # Default settings
-    DEFAULT_SETTINGS = {
-        'response_a': {
-            'system_prompt': 'assistant_prompt.txt',  # File reference
-            'model': 'sonnet',
-            'temperature': 0.3
-        },
-        'response_b': {
-            'system_prompt': 'gp-creative.txt',  # File reference  
-            'model': 'opus',
-            'temperature': 1.0
-        }
-    }
+    """Service for managing user preferences for A/B testing and personas."""
     
     @staticmethod
-    def get_user_preferences(user_id: str) -> Dict[str, Any]:
+    def get_user_preferences(user_id: str) -> Dict:
         """
-        Get user preferences, creating defaults if none exist.
-        
-        Returns:
-            Dict with 'response_a' and 'response_b' configurations
+        Get user preferences with persona-based A/B testing configuration.
+        Returns personas for Response A and Response B, creating defaults if needed.
         """
         try:
             user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
             
             if not user_prefs:
-                # Create default preferences
-                user_prefs = UserPreferencesService._create_default_preferences(user_id)
+                # Create user preferences with default personas
+                user_prefs = UserPreferencesService._create_default_user_preferences(user_id)
             
-            # Load system prompts from files or use stored text
-            response_a_prompt = UserPreferencesService._load_prompt(
-                user_prefs.response_a_system_prompt
-            )
-            response_b_prompt = UserPreferencesService._load_prompt(
-                user_prefs.response_b_system_prompt
-            )
+            # Get personas for A/B testing
+            persona_a = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_a_id, 'A')
+            persona_b = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_b_id, 'B')
             
             return {
+                'user_id': user_id,
                 'response_a': {
-                    'system_prompt': response_a_prompt,
-                    'model': user_prefs.response_a_model,
-                    'temperature': user_prefs.response_a_temperature
+                    'persona_id': persona_a['id'],
+                    'persona_name': persona_a['name'],
+                    'model': persona_a['model'],
+                    'temperature': persona_a['temperature'], 
+                    'system_prompt': persona_a['system_prompt']
                 },
                 'response_b': {
-                    'system_prompt': response_b_prompt,
-                    'model': user_prefs.response_b_model,
-                    'temperature': user_prefs.response_b_temperature
-                }
+                    'persona_id': persona_b['id'],
+                    'persona_name': persona_b['name'],
+                    'model': persona_b['model'],
+                    'temperature': persona_b['temperature'],
+                    'system_prompt': persona_b['system_prompt']
+                },
+                'chat_mode_enabled': user_prefs.chat_mode_enabled,
+                'active_persona_id': user_prefs.active_persona_id
             }
             
         except Exception as e:
-            logger.warning(f"Database error getting user preferences for {user_id}: {e}")
-            logger.info("Falling back to default settings")
-            # Return defaults on error (e.g., table doesn't exist yet)
-            return UserPreferencesService._get_default_settings_dict()
+            logger.error(f"Error getting user preferences for {user_id}: {e}")
+            # Return fallback with default personas
+            return UserPreferencesService._get_fallback_preferences(user_id)
     
     @staticmethod
-    def update_user_preferences(
-        user_id: str, 
-        response_a_config: Optional[Dict[str, Any]] = None,
-        response_b_config: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Update user preferences.
-        
-        Args:
-            user_id: Slack user ID
-            response_a_config: Dict with 'system_prompt', 'model', 'temperature'
-            response_b_config: Dict with 'system_prompt', 'model', 'temperature'
-            
-        Returns:
-            True if successful, False otherwise
-        """
+    def set_ab_testing_personas(user_id: str, persona_a_id: int, persona_b_id: int) -> bool:
+        """Set the personas to use for A/B testing."""
         try:
+            # Verify both personas belong to the user
+            persona_a = AIPersona.query.filter_by(id=persona_a_id, user_id=user_id).first()
+            persona_b = AIPersona.query.filter_by(id=persona_b_id, user_id=user_id).first()
+            
+            if not persona_a or not persona_b:
+                logger.error(f"Invalid persona IDs for user {user_id}: A={persona_a_id}, B={persona_b_id}")
+                return False
+            
             user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
-            
             if not user_prefs:
-                user_prefs = UserPreferencesService._create_default_preferences(user_id)
+                user_prefs = UserPreferences(user_id=user_id)
+                db.session.add(user_prefs)
             
-            # Update Response A settings
-            if response_a_config:
-                if 'system_prompt' in response_a_config:
-                    user_prefs.response_a_system_prompt = response_a_config['system_prompt']
-                if 'model' in response_a_config:
-                    user_prefs.response_a_model = response_a_config['model']
-                if 'temperature' in response_a_config:
-                    user_prefs.response_a_temperature = float(response_a_config['temperature'])
-            
-            # Update Response B settings
-            if response_b_config:
-                if 'system_prompt' in response_b_config:
-                    user_prefs.response_b_system_prompt = response_b_config['system_prompt']
-                if 'model' in response_b_config:
-                    user_prefs.response_b_model = response_b_config['model']
-                if 'temperature' in response_b_config:
-                    user_prefs.response_b_temperature = float(response_b_config['temperature'])
-            
+            user_prefs.ab_testing_persona_a_id = persona_a_id
+            user_prefs.ab_testing_persona_b_id = persona_b_id
             db.session.commit()
-            logger.info(f"Updated preferences for user {user_id}")
+            
+            logger.info(f"Set A/B testing personas for user {user_id}: A={persona_a_id}, B={persona_b_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Error updating user preferences for {user_id}: {e}")
+            logger.error(f"Error setting A/B testing personas for user {user_id}: {e}")
             db.session.rollback()
             return False
     
     @staticmethod
-    def _create_default_preferences(user_id: str) -> UserPreferences:
-        """Create default preferences for a new user."""
-        defaults = UserPreferencesService.DEFAULT_SETTINGS
+    def _get_ab_persona(user_id: str, persona_id: Optional[int], variant: str) -> Dict:
+        """Get persona for A/B testing, creating default if needed."""
+        if persona_id:
+            persona = AIPersona.query.filter_by(id=persona_id, user_id=user_id).first()
+            if persona:
+                return PersonaManager._persona_to_dict(persona)
         
-        user_prefs = UserPreferences(
-            user_id=user_id,
-            response_a_system_prompt=defaults['response_a']['system_prompt'],
-            response_a_model=defaults['response_a']['model'],
-            response_a_temperature=defaults['response_a']['temperature'],
-            response_b_system_prompt=defaults['response_b']['system_prompt'], 
-            response_b_model=defaults['response_b']['model'],
-            response_b_temperature=defaults['response_b']['temperature']
-        )
+        # Create or get default personas for A/B testing
+        PersonaManager._ensure_default_personas(user_id)
+        personas = PersonaManager.get_user_personas(user_id)
         
-        db.session.add(user_prefs)
-        db.session.commit()
+        if variant == 'A':
+            # Use "Assistant" persona as default for Response A
+            default_persona = next((p for p in personas if p['name'] == 'Assistant'), personas[0])
+        else:
+            # Use "Creative" persona as default for Response B  
+            default_persona = next((p for p in personas if p['name'] == 'Creative'), 
+                                 personas[1] if len(personas) > 1 else personas[0])
         
-        logger.info(f"Created default preferences for user {user_id}")
-        return user_prefs
+        return default_persona
     
     @staticmethod
-    def _load_prompt(prompt_reference: str) -> str:
-        """Load prompt from file or return as-is if it's custom text."""
+    def _create_default_user_preferences(user_id: str) -> UserPreferences:
+        """Create default user preferences with A/B testing personas."""
         try:
-            # If it looks like a filename, load from prompts directory
-            if prompt_reference.endswith('.txt'):
-                current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                prompt_path = os.path.join(current_dir, "prompts", prompt_reference)
-                
-                if os.path.exists(prompt_path):
-                    with open(prompt_path, "r") as file:
-                        return file.read()
-                else:
-                    logger.warning(f"Prompt file not found: {prompt_path}")
-                    return prompt_reference
+            # Ensure default personas exist
+            PersonaManager._ensure_default_personas(user_id)
+            personas = PersonaManager.get_user_personas(user_id)
             
-            # Otherwise, treat as custom prompt text
-            return prompt_reference
+            # Find default personas for A/B testing
+            assistant_persona = next((p for p in personas if p['name'] == 'Assistant'), personas[0])
+            creative_persona = next((p for p in personas if p['name'] == 'Creative'), 
+                                  personas[1] if len(personas) > 1 else personas[0])
+            
+            user_prefs = UserPreferences(
+                user_id=user_id,
+                ab_testing_persona_a_id=assistant_persona['id'],
+                ab_testing_persona_b_id=creative_persona['id'],
+                chat_mode_enabled=False,
+                active_persona_id=assistant_persona['id']
+            )
+            
+            db.session.add(user_prefs)
+            db.session.commit()
+            
+            logger.info(f"Created default user preferences for {user_id}")
+            return user_prefs
             
         except Exception as e:
-            logger.error(f"Error loading prompt {prompt_reference}: {e}")
-            return "You are a helpful AI assistant."  # Fallback prompt
+            logger.error(f"Error creating default user preferences for {user_id}: {e}")
+            db.session.rollback()
+            raise e
     
     @staticmethod
-    def _get_default_settings_dict() -> Dict[str, Any]:
-        """Get default settings as a dictionary with loaded prompts."""
-        defaults = UserPreferencesService.DEFAULT_SETTINGS
-        
+    def _get_fallback_preferences(user_id: str) -> Dict:
+        """Get fallback preferences when database access fails."""
         return {
+            'user_id': user_id,
             'response_a': {
-                'system_prompt': UserPreferencesService._load_prompt(
-                    defaults['response_a']['system_prompt']
-                ),
-                'model': defaults['response_a']['model'],
-                'temperature': defaults['response_a']['temperature']
+                'persona_id': None,
+                'persona_name': 'Assistant (fallback)',
+                'model': 'sonnet',
+                'temperature': 0.3,
+                'system_prompt': 'You are a helpful AI assistant.'
             },
             'response_b': {
-                'system_prompt': UserPreferencesService._load_prompt(
-                    defaults['response_b']['system_prompt']
-                ),
-                'model': defaults['response_b']['model'],
-                'temperature': defaults['response_b']['temperature']
-            }
-        }
-    
-    @staticmethod
-    def get_available_models() -> list:
-        """Get list of available models."""
-        return ['sonnet', 'opus']
-    
-    @staticmethod
-    def reset_to_defaults(user_id: str) -> bool:
-        """Reset user preferences to defaults."""
-        try:
-            user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
-            
-            if user_prefs:
-                db.session.delete(user_prefs)
-                db.session.commit()
-                logger.info(f"Reset preferences to defaults for user {user_id}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error resetting preferences for {user_id}: {e}")
-            db.session.rollback()
-            return False 
+                'persona_id': None,
+                'persona_name': 'Creative (fallback)', 
+                'model': 'opus',
+                'temperature': 1.0,
+                'system_prompt': 'You are a creative and expressive AI assistant.'
+            },
+            'chat_mode_enabled': False,
+            'active_persona_id': None
+        } 

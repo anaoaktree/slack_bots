@@ -1,0 +1,195 @@
+{
+    "type": "modal",
+    "callback_id": "persona_manager",
+    "title": {
+        "type": "plain_text",
+        "text": "📝 Manage AI Personas"
+    },
+    "blocks": [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Your saved AI personas:"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Assistant* ⭐\n_Helpful, accurate, and balanced responses_\nSonnet • 0.3 temp • 15 uses"
+            },
+            "accessory": {
+                "type": "overflow",
+                "action_id": "persona_menu_1",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✏️ Edit"
+                        },
+                        "value": "edit_1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🎯 Set Active"
+                        },
+                        "value": "activate_1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "⭐ Toggle Favorite"
+                        },
+                        "value": "favorite_1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "📋 Duplicate"
+                        },
+                        "value": "duplicate_1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Delete"
+                        },
+                        "value": "delete_1"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Creative*\n_Creative, expressive, and imaginative responses_\nOpus • 1.0 temp • 8 uses"
+            },
+            "accessory": {
+                "type": "overflow",
+                "action_id": "persona_menu_2",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✏️ Edit"
+                        },
+                        "value": "edit_2"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🎯 Set Active"
+                        },
+                        "value": "activate_2"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "⭐ Toggle Favorite"
+                        },
+                        "value": "favorite_2"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "📋 Duplicate"
+                        },
+                        "value": "duplicate_2"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Delete"
+                        },
+                        "value": "delete_2"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Analyst*\n_Logical, precise, and analytical responses_\nSonnet • 0.1 temp • 3 uses"
+            },
+            "accessory": {
+                "type": "overflow",
+                "action_id": "persona_menu_3",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✏️ Edit"
+                        },
+                        "value": "edit_3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🎯 Set Active"
+                        },
+                        "value": "activate_3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "⭐ Toggle Favorite"
+                        },
+                        "value": "favorite_3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "📋 Duplicate"
+                        },
+                        "value": "duplicate_3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Delete"
+                        },
+                        "value": "delete_3"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "➕ Create New Persona",
+                        "emoji": true
+                    },
+                    "action_id": "create_new_persona",
+                    "style": "primary"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📚 Browse Templates",
+                        "emoji": true
+                    },
+                    "action_id": "browse_templates"
+                }
+            ]
+        }
+    ],
+    "close": {
+        "type": "plain_text",
+        "text": "Close"
+    }
+} 

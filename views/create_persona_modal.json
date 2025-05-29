@@ -1,0 +1,218 @@
+{
+    "type": "modal",
+    "callback_id": "create_edit_persona",
+    "title": {
+        "type": "plain_text",
+        "text": "➕ Create AI Persona"
+    },
+    "submit": {
+        "type": "plain_text",
+        "text": "Save Persona"
+    },
+    "close": {
+        "type": "plain_text",
+        "text": "Cancel"
+    },
+    "blocks": [
+        {
+            "type": "input",
+            "block_id": "persona_name",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "name_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "e.g., Creative Writer, Code Helper, Research Assistant"
+                },
+                "max_length": 100
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Persona Name"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "persona_description",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "description_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief description of this persona's purpose and style"
+                },
+                "max_length": 200
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Description"
+            },
+            "optional": true
+        },
+        {
+            "type": "section",
+            "block_id": "model_selection",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*AI Model*"
+            },
+            "accessory": {
+                "type": "radio_buttons",
+                "action_id": "model_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet"
+                        },
+                        "description": {
+                            "type": "plain_text",
+                            "text": "Balanced, efficient, good for most tasks"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus"
+                        },
+                        "description": {
+                            "type": "plain_text",
+                            "text": "Most capable, creative, best for complex tasks"
+                        },
+                        "value": "opus"
+                    }
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Claude Sonnet"
+                    },
+                    "description": {
+                        "type": "plain_text",
+                        "text": "Balanced, efficient, good for most tasks"
+                    },
+                    "value": "sonnet"
+                }
+            }
+        },
+        {
+            "type": "section",
+            "block_id": "temperature_section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Temperature: 0.7*\n_Controls creativity vs. consistency_"
+            },
+            "accessory": {
+                "type": "static_select",
+                "action_id": "temperature_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select temperature"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.1 - Very Consistent"
+                        },
+                        "value": "0.1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Mostly Consistent"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.5 - Balanced"
+                        },
+                        "value": "0.5"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Moderately Creative"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very Creative"
+                        },
+                        "value": "1.0"
+                    }
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "0.7 - Moderately Creative"
+                    },
+                    "value": "0.7"
+                }
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*System Prompt*\nDefines the persona's behavior and personality"
+            }
+        },
+        {
+            "type": "actions",
+            "block_id": "prompt_options",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📚 Load Template",
+                        "emoji": true
+                    },
+                    "action_id": "load_prompt_template"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📄 Load from File",
+                        "emoji": true
+                    },
+                    "action_id": "load_prompt_file"
+                }
+            ]
+        },
+        {
+            "type": "input",
+            "block_id": "system_prompt",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "prompt_input",
+                "multiline": true,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "You are a helpful AI assistant. Describe your personality, tone, expertise, and how you should respond to users..."
+                },
+                "max_length": 2000
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Custom System Prompt"
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 *Tips:* Be specific about tone, expertise, and response style. Good prompts lead to better conversations!"
+                }
+            ]
+        }
+    ]
+} 
