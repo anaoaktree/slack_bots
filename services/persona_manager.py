@@ -10,6 +10,12 @@ logger = setup_logger(__name__)
 class PersonaManager:
     """Service for managing AI personas with system prompt references."""
     
+    # Cache to prevent repeated database setup operations
+    _setup_cache = {
+        'system_prompts_ensured': False,
+        'user_personas_ensured': set()
+    }
+    
     # Default personas using system prompt titles
     DEFAULT_PERSONAS = [
         {
@@ -39,7 +45,7 @@ class PersonaManager:
     def get_user_personas(user_id: str) -> List[Dict]:
         """Get all personas for a user, creating defaults if none exist."""
         try:
-            # Ensure default prompts and personas exist
+            # Ensure default prompts and personas exist (with caching)
             PersonaManager._ensure_default_personas(user_id)
             
             personas = AIPersona.query.filter_by(user_id=user_id).order_by(
@@ -261,13 +267,21 @@ class PersonaManager:
     
     @staticmethod
     def _ensure_default_personas(user_id: str) -> None:
-        """Ensure default personas exist for a user."""
+        """Ensure default personas exist for a user - with caching to prevent repeated calls."""
+        # Check if we've already ensured personas for this user
+        if user_id in PersonaManager._setup_cache['user_personas_ensured']:
+            return
+        
         try:
-            # First ensure default prompts exist
-            SystemPromptManager._ensure_default_prompts()
+            # First ensure default prompts exist (but only once)
+            if not PersonaManager._setup_cache['system_prompts_ensured']:
+                SystemPromptManager._ensure_default_prompts()
+                PersonaManager._setup_cache['system_prompts_ensured'] = True
             
             existing_count = AIPersona.query.filter_by(user_id=user_id).count()
             if existing_count > 0:
+                # Cache that this user has been set up
+                PersonaManager._setup_cache['user_personas_ensured'].add(user_id)
                 return  # User already has personas
             
             # Create default personas
@@ -296,6 +310,9 @@ class PersonaManager:
             
             db.session.commit()
             logger.info(f"Created default personas for user {user_id}")
+            
+            # Cache successful setup
+            PersonaManager._setup_cache['user_personas_ensured'].add(user_id)
             
         except Exception as e:
             logger.error(f"Error ensuring default personas for user {user_id}: {e}")
