@@ -54,9 +54,13 @@ slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 if not os.environ.get('FLASK_CLI_RUNNING'):
     with app.app_context():
         try:
+            # Test database connection first
+            db.engine.execute('SELECT 1')
             db.create_all()
+            logger.info("Database tables created successfully")
         except Exception as e:
-            logger.warning(f"Could not create database tables: {e}")
+            logger.error(f"Database connection failed: {e}")
+            # Don't fail startup - let the app run and retry later
 
 # Flask CLI Commands
 @app.cli.command()
@@ -208,9 +212,9 @@ def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
 # https://api.slack.com/apis/events-api
 @app.route("/event", methods=["POST"])
 def slack_event_handler():
+    """Handle Slack events with proper error handling via Flask error handlers."""
     # Get the JSON payload
     payload = request.get_json()
-    # TODO: check how to make logger appear in pythonanywhere
     logger.info(f"Received Slack event payload: {payload}")
 
     # Handle Slack URL verification
@@ -224,20 +228,14 @@ def slack_event_handler():
     if event_type == "app_home_opened":
         user_id = event.get("user")
         if user_id:
-            try:
-                view = update_home_tab_with_user_data(user_id)
-                slack_client.views_publish(user_id=user_id, view=view)
-                logger.info(f"Published home tab for user {user_id}")
-            except Exception as e:
-                logger.error(f"Error publishing home tab for user {user_id}: {e}")
+            view = update_home_tab_with_user_data(user_id)
+            slack_client.views_publish(user_id=user_id, view=view)
+            logger.info(f"Published home tab for user {user_id}")
     
     elif event_type in ["app_mention", "message"]:
         handle_message(event, slack_client)
     
-    logger.info(f"Received Slack event type: {event_type}")
-
-    # TODO: Add your event handling logic here
-    # check making it async https://blog.pythonanywhere.com/198/
+    logger.info(f"Successfully processed Slack event type: {event_type}")
     
     # Return a 200 OK response to acknowledge receipt
     return jsonify({"status": "ok"})
@@ -393,7 +391,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
 
 @app.route("/interactive", methods=["POST"])
 def handle_interactive_component():
-    """Handle Slack interactive components like button clicks."""
+    """Handle Slack interactive components with proper error handling via Flask error handlers."""
     payload = json.loads(request.form.get("payload"))
     logger.info(f"Received interactive payload type: {payload.get('type')}")
     
@@ -777,3 +775,300 @@ def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
     except Exception as e:
         logger.error(f"Error handling A/B vote: {e}")
         return jsonify({"error": "Failed to process vote"}), 500
+
+# Health check endpoint
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint to verify app and database status."""
+    try:
+        # Test database connection
+        with app.app_context():
+            db.engine.execute('SELECT 1')
+        return jsonify({"status": "healthy", "database": "connected"}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({"status": "unhealthy", "database": "disconnected", "error": str(e)}), 503
+
+# Additional monitoring endpoints
+@app.route("/status", methods=["GET"])
+def status_check():
+    """Detailed status check with more information."""
+    try:
+        import time
+        start_time = time.time()
+        
+        # Test database
+        db_status = "unknown"
+        db_latency = None
+        try:
+            db_start = time.time()
+            with app.app_context():
+                result = db.engine.execute('SELECT COUNT(*) FROM user_preferences')
+                row_count = result.scalar()
+            db_latency = round((time.time() - db_start) * 1000, 2)  # ms
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"error: {str(e)[:100]}"
+        
+        # # TODO Test Anthropic API
+        # anthropic_status = "unknown"
+        # try:
+        #     from services.anthropic import claude, MODELS
+        #     # Quick test with minimal tokens using the configured model
+        #     model_name = MODELS.get("sonnet", "claude-3-5-sonnet-20241022")
+        #     test_response = claude.messages.create(
+        #         model=model_name,
+        #         max_tokens=1,
+        #         messages=[{"role": "user", "content": "hi"}]
+        #     )
+        #     anthropic_status = "connected"
+        # except Exception as e:
+        #     anthropic_status = f"error: {str(e)[:100]}"
+        
+        total_time = round((time.time() - start_time) * 1000, 2)
+        
+        return jsonify({
+            "status": "ok",
+            "timestamp": time.time(),
+            "checks": {
+                "database": {
+                    "status": db_status,
+                    "latency_ms": db_latency,
+                    "user_count": row_count if db_status == "connected" else None
+                },
+                "anthropic": {
+                    "status": anthropic_status
+                }
+            },
+            "response_time_ms": total_time
+        })
+        
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return jsonify({
+            "status": "error", 
+            "error": str(e),
+            "timestamp": time.time()
+        }), 500
+
+# Request logging middleware
+@app.before_request
+def log_request_info():
+    """Log request information for debugging."""
+    # Skip logging for health checks to avoid noise
+    if request.path in ['/health', '/status']:
+        return
+        
+    logger.info(f"Request: {request.method} {request.path} from {request.remote_addr}")
+    
+    # Log payload size for POST requests
+    if request.method == 'POST' and request.content_length:
+        logger.info(f"Request size: {request.content_length} bytes")
+
+@app.after_request
+def log_response_info(response):
+    """Log response information."""
+    # Skip logging for health checks
+    if request.path in ['/health', '/status']:
+        return response
+        
+    logger.info(f"Response: {response.status_code} for {request.method} {request.path}")
+    
+    # Log errors with more detail
+    if response.status_code >= 400:
+        logger.warning(f"Error response {response.status_code}: {request.method} {request.path}")
+    
+    return response
+
+# Simple error tracking (in memory - for basic monitoring)
+error_tracker = {
+    'recent_errors': [],
+    'error_counts': {}
+}
+
+def track_error(error_type, error_message, error_id=None):
+    """Track errors for monitoring."""
+    import time
+    
+    error_entry = {
+        'timestamp': time.time(),
+        'type': error_type,
+        'message': error_message[:200],  # Truncate long messages
+        'error_id': error_id
+    }
+    
+    # Keep only last 50 errors
+    error_tracker['recent_errors'].append(error_entry)
+    if len(error_tracker['recent_errors']) > 50:
+        error_tracker['recent_errors'].pop(0)
+    
+    # Count by type
+    error_tracker['error_counts'][error_type] = error_tracker['error_counts'].get(error_type, 0) + 1
+
+
+@app.route("/errors", methods=["GET"])
+def error_summary():
+    """Get recent errors summary for monitoring."""
+    import time
+    
+    # Only show errors from last 24 hours
+    cutoff_time = time.time() - (24 * 60 * 60)
+    recent_errors = [
+        error for error in error_tracker['recent_errors'] 
+        if error['timestamp'] > cutoff_time
+    ]
+    
+    return jsonify({
+        "status": "ok",
+        "error_summary": {
+            "total_recent_errors": len(recent_errors),
+            "error_counts": error_tracker['error_counts'],
+            "recent_errors": recent_errors[-10:],  # Last 10 errors
+        },
+        "timestamp": time.time()
+    })
+
+# ==========================================
+# ERROR HANDLERS (Following Flask best practices)
+# ==========================================
+
+from werkzeug.exceptions import HTTPException
+import traceback
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    """Handle 500 Internal Server Error."""
+    error_id = f"ERR-{int(os.urandom(4).hex(), 16)}"  # Generate short error ID
+    logger.error(f"Internal Server Error [{error_id}]: {e}")
+    logger.error(f"Traceback [{error_id}]: {traceback.format_exc()}")
+    
+    # Track error for monitoring
+    track_error("500_internal_error", str(e), error_id)
+    
+    # Return JSON for API endpoints, HTML for others
+    if request.path.startswith('/event') or request.path.startswith('/interactive'):
+        return jsonify({
+            "error": "Internal server error",
+            "error_id": error_id,
+            "status": "error"
+        }), 500
+    
+    return jsonify({
+        "error": "Internal server error", 
+        "error_id": error_id,
+        "message": "Something went wrong. Please try again later."
+    }), 500
+
+@app.errorhandler(404)
+def not_found_error(e):
+    """Handle 404 Not Found Error."""
+    logger.warning(f"404 error: {request.url}")
+    track_error("404_not_found", f"Path: {request.path}")
+    
+    return jsonify({
+        "error": "Not found",
+        "message": "The requested resource was not found.",
+        "path": request.path
+    }), 404
+
+@app.errorhandler(400)
+def bad_request_error(e):
+    """Handle 400 Bad Request Error."""
+    logger.warning(f"Bad request: {request.url} - {e}")
+    track_error("400_bad_request", str(e))
+    
+    return jsonify({
+        "error": "Bad request",
+        "message": "Invalid request data or parameters."
+    }), 400
+
+@app.errorhandler(405)
+def method_not_allowed_error(e):
+    """Handle 405 Method Not Allowed Error."""
+    logger.warning(f"Method not allowed: {request.method} {request.url}")
+    track_error("405_method_not_allowed", f"{request.method} {request.path}")
+    
+    return jsonify({
+        "error": "Method not allowed",
+        "message": f"Method {request.method} is not allowed for this endpoint."
+    }), 405
+
+# Database-specific error handler
+from sqlalchemy.exc import OperationalError, DatabaseError
+from pymysql.err import OperationalError as PyMySQLOperationalError
+
+@app.errorhandler(OperationalError)
+@app.errorhandler(PyMySQLOperationalError)
+@app.errorhandler(DatabaseError)
+def database_error(e):
+    """Handle database connection and operational errors."""
+    error_id = f"DB-ERR-{int(os.urandom(4).hex(), 16)}"
+    logger.error(f"Database Error [{error_id}]: {e}")
+    
+    # Track database error
+    track_error("database_error", str(e), error_id)
+    
+    # For Slack API endpoints, return 200 to prevent retries
+    if request.path.startswith('/event') or request.path.startswith('/interactive'):
+        # Try to send user-friendly message to Slack if possible
+        try:
+            payload = request.get_json() or {}
+            if request.path.startswith('/interactive'):
+                payload = json.loads(request.form.get("payload", "{}"))
+            
+            user_id = payload.get("user", {}).get("id") or payload.get("event", {}).get("user")
+            if user_id:
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text="🔧 I'm experiencing database connectivity issues. Please try again in a moment."
+                )
+        except Exception as slack_error:
+            logger.error(f"Failed to send database error message to Slack: {slack_error}")
+        
+        return jsonify({"status": "ok", "message": "Database temporarily unavailable"}), 200
+    
+    return jsonify({
+        "error": "Database unavailable",
+        "error_id": error_id,
+        "message": "Database is temporarily unavailable. Please try again later."
+    }), 503
+
+# Generic exception handler for unhandled exceptions
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle unexpected exceptions."""
+    # Pass through HTTP errors to their specific handlers
+    if isinstance(e, HTTPException):
+        return e
+    
+    # Handle non-HTTP exceptions
+    error_id = f"UNHANDLED-{int(os.urandom(4).hex(), 16)}"
+    logger.error(f"Unhandled Exception [{error_id}]: {type(e).__name__}: {e}")
+    logger.error(f"Traceback [{error_id}]: {traceback.format_exc()}")
+    
+    # Track unhandled exception
+    track_error("unhandled_exception", f"{type(e).__name__}: {str(e)}", error_id)
+    
+    # For Slack endpoints, try to be graceful
+    if request.path.startswith('/event') or request.path.startswith('/interactive'):
+        try:
+            payload = request.get_json() or {}
+            if request.path.startswith('/interactive'):
+                payload = json.loads(request.form.get("payload", "{}"))
+            
+            user_id = payload.get("user", {}).get("id") or payload.get("event", {}).get("user")
+            if user_id:
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text="⚠️ I encountered an unexpected error. Please try again."
+                )
+        except Exception as slack_error:
+            logger.error(f"Failed to send exception error message to Slack: {slack_error}")
+        
+        return jsonify({"status": "ok", "message": "Unexpected error occurred"}), 200
+    
+    return jsonify({
+        "error": "Unexpected error",
+        "error_id": error_id,
+        "message": "An unexpected error occurred. Please try again later."
+    }), 500

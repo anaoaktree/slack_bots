@@ -9,6 +9,17 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
+    # Database connection settings
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,  # Verify connections before use
+        'pool_recycle': 300,    # Recycle connections every 5 minutes
+        'connect_args': {
+            'connect_timeout': 10,  # 10 second connection timeout
+            'read_timeout': 30,     # 30 second read timeout
+            'write_timeout': 30     # 30 second write timeout
+        }
+    }
+    
     # Database URL determination
     @staticmethod
     def get_database_url():
