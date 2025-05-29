@@ -1,24 +1,25 @@
 {
   "type": "modal",
-  "callback_id": "create_persona",
+  "callback_id": "edit_persona",
   "title": {
     "type": "plain_text",
-    "text": "🎭 Create New Persona"
+    "text": "✏️ Edit Persona"
   },
   "submit": {
     "type": "plain_text",
-    "text": "Create Persona"
+    "text": "Save Changes"
   },
   "close": {
     "type": "plain_text",
     "text": "Cancel"
   },
+  "private_metadata": "",
   "blocks": [
     {
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*Create a new AI persona* with custom personality, expertise, and response style."
+        "text": "*Edit your AI persona* settings, personality, and response style."
       }
     },
     {
@@ -33,7 +34,8 @@
           "type": "plain_text",
           "text": "e.g. Technical Writer, Data Analyst, Creative Helper"
         },
-        "action_id": "name_input"
+        "action_id": "name_input",
+        "initial_value": ""
       },
       "label": {
         "type": "plain_text",
@@ -50,7 +52,8 @@
           "type": "plain_text",
           "text": "Brief description of this persona's purpose and expertise"
         },
-        "action_id": "description_input"
+        "action_id": "description_input",
+        "initial_value": ""
       },
       "label": {
         "type": "plain_text",
@@ -177,41 +180,14 @@
               "text": "Assistant - General help & balanced responses"
             },
             "value": "1"
-          },
-          {
-            "text": {
-              "type": "plain_text",
-              "text": "Creative Writer - Expressive & imaginative"
-            },
-            "value": "2"
-          },
-          {
-            "text": {
-              "type": "plain_text",
-              "text": "Technical Analyst - Logical & precise"
-            },
-            "value": "3"
-          },
-          {
-            "text": {
-              "type": "plain_text",
-              "text": "Code Helper - Programming assistance"
-            },
-            "value": "4"
-          },
-          {
-            "text": {
-              "type": "plain_text",
-              "text": "Writing Coach - Style & clarity guidance"
-            },
-            "value": "5"
           }
         ]
       },
       "label": {
         "type": "plain_text",
-        "text": "Choose Base Prompt"
-      }
+        "text": "Base System Prompt (Optional)"
+      },
+      "optional": true
     },
     {
       "type": "input",
@@ -219,12 +195,13 @@
       "element": {
         "type": "plain_text_input",
         "multiline": true,
+        "max_length": 3000,
         "placeholder": {
           "type": "plain_text",
-          "text": "You are a helpful AI assistant. Define the persona's expertise, personality, and response style here..."
+          "text": "Enter the system prompt that defines this persona's behavior, expertise, and response style..."
         },
         "action_id": "prompt_input",
-        "max_length": 3000
+        "initial_value": ""
       },
       "label": {
         "type": "plain_text",
@@ -235,7 +212,7 @@
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "💾 *Save this prompt for reuse?*"
+        "text": "*💾 Save Prompt Options*"
       }
     },
     {
@@ -247,8 +224,8 @@
         "options": [
           {
             "text": {
-              "type": "plain_text",
-              "text": "Save as new system prompt"
+              "type": "mrkdwn",
+              "text": "Save this prompt for reuse in other personas"
             },
             "value": "save_prompt"
           }
@@ -267,24 +244,16 @@
         "type": "plain_text_input",
         "placeholder": {
           "type": "plain_text",
-          "text": "e.g. Python Expert, Marketing Copywriter, Research Assistant"
+          "text": "e.g. 'Data Analysis Expert', 'Creative Writing Coach'"
         },
-        "action_id": "prompt_title_input"
+        "action_id": "prompt_title_input",
+        "initial_value": ""
       },
       "label": {
         "type": "plain_text",
-        "text": "Prompt Title (if saving)"
+        "text": "New Prompt Title (if saving as reusable)"
       },
       "optional": true
-    },
-    {
-      "type": "context",
-      "elements": [
-        {
-          "type": "mrkdwn",
-          "text": "💡 *Tip:* Select an existing prompt to start with, then modify the content. Check 'Save as new system prompt' to create a reusable template for future personas."
-        }
-      ]
     }
   ]
 } 

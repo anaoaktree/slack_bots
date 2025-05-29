@@ -37,16 +37,16 @@
                     {
                         "text": {
                             "type": "plain_text",
-                            "text": "🆚 A/B Testing - Compare two personas"
-                        },
-                        "value": "ab_testing"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
                             "text": "💬 Chat Mode - Use active persona"
                         },
                         "value": "chat_mode"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🆚 A/B Testing - Compare two personas"
+                        },
+                        "value": "ab_testing"
                     }
                 ]
             }
@@ -58,107 +58,7 @@
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*🆚 A/B Testing Configuration*\nCompare two different personas side-by-side and vote for your preferred responses."
-            }
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Response A Persona:*"
-            },
-            "accessory": {
-                "type": "static_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Choose persona for Response A"
-                },
-                "action_id": "ab_persona_a_selector",
-                "options": [
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Assistant - Helpful & balanced"
-                        },
-                        "value": "1"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Creative - Expressive & imaginative"
-                        },
-                        "value": "2"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Analyst - Data-driven & logical"
-                        },
-                        "value": "3"
-                    }
-                ]
-            }
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Response B Persona:*"
-            },
-            "accessory": {
-                "type": "static_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Choose persona for Response B"
-                },
-                "action_id": "ab_persona_b_selector",
-                "options": [
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Assistant - Helpful & balanced"
-                        },
-                        "value": "1"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Creative - Expressive & imaginative"
-                        },
-                        "value": "2"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Analyst - Data-driven & logical"
-                        },
-                        "value": "3"
-                    }
-                ]
-            }
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Save A/B Testing Settings"
-                    },
-                    "action_id": "save_ab_settings",
-                    "style": "primary"
-                }
-            ]
-        },
-        {
-            "type": "divider"
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*💬 Chat Mode Configuration*\nChat with your active persona. Switch between personas anytime."
+                "text": "*💬 Chat Mode Configuration*\nChat with your active persona. All responses will use this persona's settings."
             }
         },
         {
@@ -181,22 +81,28 @@
                             "text": "Assistant - Helpful & balanced"
                         },
                         "value": "1"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Creative - Expressive & imaginative"
-                        },
-                        "value": "2"
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Analyst - Data-driven & logical"
-                        },
-                        "value": "3"
                     }
                 ]
+            }
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*Model:* Claude Sonnet"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*Temperature:* 0.3 (Balanced)"
+                }
+            ]
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*System Prompt:*\nYou are a helpful AI assistant. Provide clear, accurate, and balanced responses. Be concise but thorough."
             }
         },
         {
@@ -206,18 +112,151 @@
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Set Active Persona"
+                        "text": "✏️ Edit Persona"
                     },
-                    "action_id": "set_active_persona",
+                    "action_id": "edit_chat_persona",
                     "style": "primary"
                 },
                 {
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Switch to Chat Mode"
+                        "text": "➕ Create New Persona"
+                    },
+                    "action_id": "create_persona"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🎯 Activate Chat Mode"
                     },
                     "action_id": "switch_to_chat_mode"
+                }
+            ]
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🆚 A/B Testing Configuration*\nCompare two different personas side-by-side and vote for your preferred responses."
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Persona Comparison Setup:*"
+            }
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*🅰️ Response A Persona*"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*🅱️ Response B Persona*"
+                }
+            ]
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "static_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Choose persona A"
+                    },
+                    "action_id": "ab_persona_a_selector",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Assistant - Helpful & balanced"
+                            },
+                            "value": "1"
+                        }
+                    ]
+                },
+                {
+                    "type": "static_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Choose persona B"
+                    },
+                    "action_id": "ab_persona_b_selector",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Assistant - Helpful & balanced"
+                            },
+                            "value": "1"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*A: Assistant*\n• Model: Claude Sonnet\n• Temperature: 0.3 (Balanced)\n• Style: Helpful & accurate"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*B: Creative*\n• Model: Claude Opus\n• Temperature: 1.0 (Creative)\n• Style: Expressive & imaginative"
+                }
+            ]
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*Prompt A:* You are a helpful AI assistant. Provide clear, accurate, and balanced responses..."
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*Prompt B:* You are a creative and expressive AI assistant. Think outside the box, use vivid language..."
+                }
+            ]
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "✏️ Edit Persona A"
+                    },
+                    "action_id": "edit_ab_persona_a"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "✏️ Edit Persona B"
+                    },
+                    "action_id": "edit_ab_persona_b"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🆚 Activate A/B Mode"
+                    },
+                    "action_id": "save_ab_settings",
+                    "style": "primary"
                 }
             ]
         },
@@ -266,7 +305,7 @@
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💡 *Pro tip:* Create personas for different use cases, then mix and match in A/B testing. System prompts are automatically saved for reuse when creating personas!"
+                    "text": "💡 *Pro tip:* Edit personas directly from this page! Click 'Edit Persona' to modify settings, or create new ones for different use cases."
                 }
             ]
         }
