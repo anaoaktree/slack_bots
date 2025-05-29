@@ -54,8 +54,10 @@ slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 if not os.environ.get('FLASK_CLI_RUNNING'):
     with app.app_context():
         try:
-            # Test database connection first
-            db.engine.execute('SELECT 1')
+            # Test database connection first using newer SQLAlchemy API
+            from sqlalchemy import text
+            db.session.execute(text('SELECT 1'))
+            db.session.commit()
             db.create_all()
             logger.info("Database tables created successfully")
         except Exception as e:
@@ -164,10 +166,28 @@ def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
         # Update persona dropdowns with actual user personas
         persona_options = []
         for persona in personas:
+            # Construct option text respecting Slack's 76-character limit
+            name = persona['name']
+            description = persona.get('description', 'Custom persona')
+            
+            # Calculate available space for description (76 - name - " - " - buffer)
+            available_space = 73 - len(name)  # 76 - 3 for " - "
+            
+            if len(description) > available_space:
+                # Truncate description and add ellipsis
+                truncated_desc = description[:available_space-3] + "..."
+                option_text = f"{name} - {truncated_desc}"
+            else:
+                option_text = f"{name} - {description}"
+            
+            # Ensure we never exceed 76 characters
+            if len(option_text) > 76:
+                option_text = option_text[:73] + "..."
+            
             persona_options.append({
                 "text": {
                     "type": "plain_text",
-                    "text": f"{persona['name']} - {persona.get('description', 'Custom persona')}"
+                    "text": option_text
                 },
                 "value": str(persona['id'])
             })
@@ -208,6 +228,33 @@ def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
         # Fallback to basic view
         return load_json_view("app_home_unified")
 
+def safe_publish_home_tab(user_id: str, view: Dict[str, Any] = None) -> bool:
+    """
+    Safely publish home tab updates with error handling.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        if view is None:
+            view = update_home_tab_with_user_data(user_id)
+        
+        slack_client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Successfully published home tab for user {user_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to publish home tab for user {user_id}: {e}")
+        
+        # Try to send a fallback message
+        try:
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text="⚠️ I'm having trouble updating your home tab, but you can still chat with me directly here!"
+            )
+        except Exception as fallback_e:
+            logger.error(f"Even fallback message failed for user {user_id}: {fallback_e}")
+        
+        return False
+
 # https://tools.slack.dev/node-slack-sdk/tutorials/local-development/
 # https://api.slack.com/apis/events-api
 @app.route("/event", methods=["POST"])
@@ -228,9 +275,7 @@ def slack_event_handler():
     if event_type == "app_home_opened":
         user_id = event.get("user")
         if user_id:
-            view = update_home_tab_with_user_data(user_id)
-            slack_client.views_publish(user_id=user_id, view=view)
-            logger.info(f"Published home tab for user {user_id}")
+            safe_publish_home_tab(user_id)
     
     elif event_type in ["app_mention", "message"]:
         handle_message(event, slack_client)
@@ -456,7 +501,7 @@ def handle_mode_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> An
         if success:
             # Update the home tab
             view = update_home_tab_with_user_data(user_id)
-            slack_client.views_publish(user_id=user_id, view=view)
+            safe_publish_home_tab(user_id, view)
             
             logger.info(f"Updated mode to {selected_mode} for user {user_id}")
         
@@ -520,7 +565,7 @@ def handle_save_ab_settings(payload: Dict[str, Any]) -> Any:
         
         # Update home tab to show current settings
         view = update_home_tab_with_user_data(user_id)
-        slack_client.views_publish(user_id=user_id, view=view)
+        safe_publish_home_tab(user_id, view)
         
         # Send confirmation message
         slack_client.chat_postMessage(
@@ -549,7 +594,7 @@ def handle_chat_mode_actions(payload: Dict[str, Any], action: Dict[str, Any]) ->
             if success:
                 # Update home tab
                 view = update_home_tab_with_user_data(user_id)
-                slack_client.views_publish(user_id=user_id, view=view)
+                safe_publish_home_tab(user_id, view)
                 
                 # Send confirmation
                 slack_client.chat_postMessage(
@@ -691,7 +736,7 @@ def handle_create_persona_submission(payload: Dict[str, Any], user_id: str) -> A
         if success:
             # Update home tab
             view = update_home_tab_with_user_data(user_id)
-            slack_client.views_publish(user_id=user_id, view=view)
+            safe_publish_home_tab(user_id, view)
             
             # Send confirmation
             slack_client.chat_postMessage(
@@ -781,9 +826,11 @@ def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
 def health_check():
     """Health check endpoint to verify app and database status."""
     try:
-        # Test database connection
+        # Test database connection using newer SQLAlchemy API
+        from sqlalchemy import text
         with app.app_context():
-            db.engine.execute('SELECT 1')
+            db.session.execute(text('SELECT 1'))
+            db.session.commit()
         return jsonify({"status": "healthy", "database": "connected"}), 200
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -801,10 +848,12 @@ def status_check():
         db_status = "unknown"
         db_latency = None
         try:
+            from sqlalchemy import text
             db_start = time.time()
             with app.app_context():
-                result = db.engine.execute('SELECT COUNT(*) FROM user_preferences')
+                result = db.session.execute(text('SELECT COUNT(*) FROM user_preferences'))
                 row_count = result.scalar()
+                db.session.commit()
             db_latency = round((time.time() - db_start) * 1000, 2)  # ms
             db_status = "connected"
         except Exception as e:
