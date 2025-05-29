@@ -11,7 +11,6 @@ logger = setup_logger(__name__)
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-haiku = "claude-3-5-haiku-20241022"
 sonnet = "claude-sonnet-4-20250514"
 opus = "claude-opus-4-20250514"
 
@@ -21,7 +20,7 @@ def get_creative_claude_response(conversation: List[Dict]) -> str:
     # TODO: check if messages race condition is causing multiple api calls.
     # TODO: add logging
     claude_message = claude.messages.create(
-        model=haiku,
+        model=opus,
         temperature=1,
         max_tokens=2000,
         system=open("prompts/gp-creative.txt", "r").read(),

@@ -1,156 +1,332 @@
-# LLM Slack Assistant
+# PythonAnywhere Deploy 🚀
 
-A Slack bot powered by the most popular LLMs that provide intelligent responses and document analysis capabilities.
+A modern Python library and CLI tool for deploying web applications to PythonAnywhere with ease. Supports Flask, Django, FastAPI, and static sites with automatic framework detection and intelligent deployment workflows.
 
-## Features
+## ✨ Features
 
-- **Supported LLMs**: Claude
-- **Direct Messages**: Chat with Claude directly in DMs
-- **Channel Interactions**: Mention the bot in channels to get responses
-- **Thread Support**: Continues conversations in threads
-- **PDF Processing**: Analyzes PDF files shared in conversations (up to 32MB)
-- **Citations**: Provides citations for the responses
-- **Home Tab**: Configure bot settings including:
-  - API key configuration
-  - Model selection
-- **A/B Testing**: Generates two different response variants for user feedback
-- **Interactive Voting**: Users can vote for their preferred response via Slack buttons
-- **Database Storage**: Stores all tests, responses, and votes in SQLite (local) or MySQL (production)
-- **Conversation Context**: Maintains conversation history for better responses
+- 🔍 **Automatic Framework Detection** - Detects Flask, Django, FastAPI, and static sites
+- ⚙️ **Flexible Configuration** - YAML config files, environment variables, or CLI options
+- 📁 **Smart File Handling** - Respects .gitignore and excludes unnecessary files
+- 🗃️ **Database Migrations** - Framework-specific migration support
+- 🔄 **Automatic Reloading** - Reloads webapps after deployment
+- 🎨 **Beautiful CLI** - Rich terminal UI with progress indicators
+- 🛡️ **Error Handling** - Comprehensive validation and error reporting
 
+## 📦 Installation
 
-## Usage
-
-- **Direct Messages**: Simply send a message to the bot in DMs
-- **Channels**: Mention the bot using `@BotName` in any channel
-- **PDF Analysis**: Share a PDF file in the conversation with the bot
-- **Settings**: Access the home tab in Slack to configure your preferences
-
-
-## Changelog
-
-### Version 0.0.1
-- Initial release
-- Basic conversation capabilities in DMs and channels
-- PDF document processing support (up to 32MB) with citations for claude sonnet
-- Home tab with settings configuration
-- Support for Claude 3.5 models (Sonnet and Haiku)
-
-
-
-## Up next
-- Make it async with aiothttp https://tools.slack.dev/bolt-python/concepts/async
-- Add database and fix home tab
-- Add more LLMs (decide if creating different apps or use commands)
-- Check out https://github.com/seratch/ChatGPT-in-Slack
-
-## A/B Testing Workflow
-
-1. **User asks a question** → Bot is mentioned or sends DM
-2. **Bot generates two responses**:
-   - **Response A**: Claude Sonnet 4 (standard assistant prompt, temperature=0.3)
-   - **Response B**: Claude Haiku 3.5 (creative prompt, temperature=1.0)
-3. **Both responses are posted** with voting buttons
-4. **User votes** for their preferred response
-5. **Data is stored** for analysis and model improvement
-
-## Database Schema
-
-### Tables Created:
-
-- **`ab_tests`**: Stores test metadata (user, channel, original prompt, context)
-- **`ab_responses`**: Stores the two generated responses with model settings
-- **`ab_votes`**: Stores user voting preferences
-
-## Setup
-
-### Prerequisites
-
-- Python 3.8+
-- Slack App with bot permissions
-- Anthropic API key
-- (Optional) MySQL database for production
-
-### Installation
-
-1. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install pythonanywhere-deploy
 ```
 
-2. Set up environment variables:
-```bash
-# Required
-CHACHIBT_APP_BOT_AUTH_TOKEN=your_slack_bot_token
-ANTHROPIC_API_KEY=your_anthropic_api_key
+## 🚀 Quick Start
 
-# Optional (for production MySQL)
-MYSQL_HOST=your_mysql_host
-MYSQL_USER=your_mysql_user
-MYSQL_PASSWORD=your_mysql_password
-MYSQL_DATABASE=your_mysql_database
+### 1. Initialize Configuration
+
+```bash
+pa-deploy init
 ```
 
-3. Initialize database:
-```bash
-FLASK_APP=server.py python -m flask db init
-FLASK_APP=server.py python -m flask db upgrade
+This creates a `pythonanywhere.yml` configuration file in your project.
+
+### 2. Configure Your Credentials
+
+Edit the generated configuration file or set environment variables:
+
+```yaml
+# pythonanywhere.yml
+pythonanywhere:
+  api_token: "your_api_token"
+  username: "your_username" 
+  domain: "your_username.pythonanywhere.com"
 ```
 
-4. Test the A/B functionality:
+Or use environment variables:
 ```bash
-python test_ab_testing.py
+export PA_API_TOKEN="your_api_token"
+export PA_USERNAME="your_username"
+export PA_DOMAIN="your_username.pythonanywhere.com"
 ```
 
-### Slack App Configuration
+### 3. Deploy Your Project
 
-Your Slack app needs these **Event Subscriptions**:
-- `app_mention` - When bot is mentioned
-- `message.channels` - Messages in channels
-- `message.im` - Direct messages
-
-**Interactive Components** endpoint: `https://yourdomain.com/interactive`
-
-**Bot Token Scopes**:
-- `app_mentions:read`
-- `channels:history`
-- `chat:write`
-- `im:history`
-- `im:write`
-
-## API Endpoints
-
-- `POST /event` - Slack event handler
-- `POST /interactive` - Slack interactive component handler (button clicks)
-- `GET /` - Health check
-
-## Testing
-
-Run the comprehensive test suite:
 ```bash
-python test_ab_testing.py
+pa-deploy deploy
 ```
 
-This validates:
-- ✅ Database schema and tables
-- ✅ A/B test creation
-- ✅ Response generation with both models
-- ✅ Slack message formatting with buttons
-- ✅ Vote recording and retrieval
+## 🎯 Usage Examples
 
-## Production Deployment
+### CLI Usage
 
-1. **Set up MySQL** database with credentials in environment variables
-2. **Configure Slack app** with your production URLs
-3. **Deploy** using your preferred method (Docker, cloud platform, etc.)
-4. **Run migrations**: `FLASK_APP=server.py python -m flask db upgrade`
+```bash
+# Deploy with default configuration
+pa-deploy deploy
 
-The app automatically detects MySQL vs SQLite based on environment variables.
+# Deploy with custom config file
+pa-deploy deploy --config my-config.yml
 
-## Contributing
+# Deploy with CLI overrides
+pa-deploy deploy --username myuser --domain myapp.pythonanywhere.com
 
-1. Test your changes with `python test_ab_testing.py`
-2. Ensure all A/B testing functionality works
-3. Update documentation for any new features
+# Dry run to see what would be deployed
+pa-deploy deploy --dry-run
 
-For questions about the A/B testing implementation, see `services/ab_testing.py` and `models.py`.
+# Skip migrations and requirements
+pa-deploy deploy --no-migrations --no-requirements
+
+# Check configuration and test API
+pa-deploy check
+
+# Detect framework in current directory
+pa-deploy detect
+```
+
+### Python API Usage
+
+```python
+from pythonanywhere_deploy import PythonAnywhereDeployer, DeploymentConfig
+
+# Create configuration
+config = DeploymentConfig(
+    api_token="your_token",
+    username="your_username",
+    domain="your_app.pythonanywhere.com",
+    project_dir="/path/to/project"
+)
+
+# Deploy
+deployer = PythonAnywhereDeployer(config)
+result = deployer.deploy()
+
+if result["success"]:
+    print("🎉 Deployment successful!")
+else:
+    print("❌ Deployment failed:", result["errors"])
+```
+
+## ⚙️ Configuration
+
+### Configuration File (pythonanywhere.yml)
+
+```yaml
+pythonanywhere:
+  # Required
+  api_token: "your_api_token"
+  username: "your_username"
+  domain: "yourapp.pythonanywhere.com"
+  
+  # Optional
+  host: "www.pythonanywhere.com"  # or "eu.pythonanywhere.com"
+  remote_dir: "my_app"            # defaults to project name
+  framework: "flask"              # override auto-detection
+  requirements_file: "requirements.txt"
+  
+  # Deployment options
+  run_migrations: true
+  install_requirements: true
+  reload_webapp: true
+  
+  # Custom exclusions (beyond .gitignore)
+  exclude_patterns:
+    - "*.tmp"
+    - "local_settings.py"
+    - "development.db"
+```
+
+### Environment Variables
+
+```bash
+PA_API_TOKEN=your_api_token
+PA_USERNAME=your_username
+PA_DOMAIN=yourapp.pythonanywhere.com
+PA_HOST=www.pythonanywhere.com
+```
+
+### Configuration Priority
+
+1. CLI options (highest priority)
+2. YAML configuration file
+3. Environment variables (lowest priority)
+
+## 🔧 Framework Support
+
+### Flask
+- ✅ Auto-detection via imports and Flask-specific files
+- ✅ Flask-Migrate database migrations
+- ✅ Virtual environment setup
+
+### Django
+- ✅ Auto-detection via `manage.py` and settings
+- ✅ `makemigrations` and `migrate` commands
+- ✅ `collectstatic` for static files
+
+### FastAPI
+- ✅ Auto-detection via imports
+- ✅ Alembic migrations (if present)
+- ✅ Virtual environment setup
+
+### Static Sites
+- ✅ Auto-detection via HTML files
+- ✅ Direct file deployment
+- ✅ No backend processing required
+
+### Generic Python
+- ✅ Fallback for any Python project
+- ✅ Basic file deployment
+- ✅ Requirements installation
+
+## 📁 File Handling
+
+The library intelligently handles file exclusions:
+
+### Default Exclusions
+- `.git`, `.github/`
+- `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`
+- `venv/`, `.venv/`, `env/`
+- `node_modules/`
+- `*.log`, `*.db` (local databases)
+- `*.md` (documentation)
+- `**/tests/*`, `**/test_*.py`
+
+### Custom Exclusions
+- Respects `.gitignore` patterns
+- Additional patterns via configuration
+- Override exclusions with configuration
+
+## 🛠️ Advanced Usage
+
+### Custom Framework Handler
+
+```python
+from pythonanywhere_deploy.frameworks import FrameworkHandler
+
+class MyFrameworkHandler(FrameworkHandler):
+    @property
+    def name(self):
+        return "myframework"
+    
+    def detect(self, project_dir):
+        return (project_dir / "myframework.py").exists()
+    
+    def get_migration_commands(self, console_id, config):
+        return ["my-migrate-command"]
+    
+    def get_post_deployment_commands(self, console_id, config):
+        return ["my-post-deploy-command"]
+
+# Register your handler
+from pythonanywhere_deploy.frameworks import FRAMEWORK_HANDLERS
+FRAMEWORK_HANDLERS.insert(0, MyFrameworkHandler())
+```
+
+### Programmatic Deployment
+
+```python
+from pathlib import Path
+from pythonanywhere_deploy import load_config, PythonAnywhereDeployer
+
+# Load config with overrides
+config = load_config(
+    config_file=Path("custom-config.yml"),
+    username="override_user",
+    run_migrations=False
+)
+
+# Create and configure deployer
+deployer = PythonAnywhereDeployer(config)
+
+# Test connection first
+success, message = deployer.test_api_connection()
+if not success:
+    print(f"Connection failed: {message}")
+    exit(1)
+
+# Run deployment
+result = deployer.deploy()
+
+# Handle results
+for step, info in result["steps"].items():
+    status = "✅" if info["success"] else "❌"
+    print(f"{status} {step}: {info.get('message', '')}")
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **API Authentication Errors**
+   ```bash
+   # Check your token
+   pa-deploy check
+   
+   # Verify token format (should not include "Token " prefix)
+   export PA_API_TOKEN="abc123def456"  # ✅ Correct
+   export PA_API_TOKEN="Token abc123def456"  # ❌ Wrong
+   ```
+
+2. **File Upload Issues**
+   ```bash
+   # Check what files would be uploaded
+   pa-deploy deploy --dry-run
+   
+   # Test with verbose output
+   pa-deploy deploy --verbose
+   ```
+
+3. **Migration Failures**
+   ```bash
+   # Skip migrations if problematic
+   pa-deploy deploy --no-migrations
+   
+   # Check framework detection
+   pa-deploy detect
+   ```
+
+### Debug Mode
+
+```bash
+# Verbose output
+pa-deploy deploy --verbose
+
+# Dry run to test
+pa-deploy deploy --dry-run
+
+# Check configuration
+pa-deploy check
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to:
+
+1. Report bugs and request features via GitHub Issues
+2. Submit pull requests for improvements
+3. Add support for new frameworks
+4. Improve documentation
+
+### Development Setup
+
+```bash
+git clone https://github.com/yourusername/pythonanywhere-deploy
+cd pythonanywhere-deploy
+pip install -e ".[dev]"
+```
+
+### Running Tests
+
+```bash
+pytest
+```
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built using the [PythonAnywhere API](https://help.pythonanywhere.com/pages/API/)
+- CLI powered by [Click](https://click.palletsprojects.com/) and [Rich](https://rich.readthedocs.io/)
+- Framework detection inspired by various deployment tools
+
+---
+
+**Made with ❤️ for the Python community**

@@ -37,7 +37,7 @@ class ABTestingService:
         db.session.add(ab_test)
         db.session.flush()  # Get the ID without committing
         
-        # Configuration for Response A (Standard Assistant)
+        # Configuration for Response A (Standard Assistant with Sonnet 4)
         system_prompt_a = open("prompts/assistant_prompt.txt", "r").read()
         response_a_text = ABTestingService._generate_claude_response(
             conversation=conversation,
@@ -57,7 +57,7 @@ class ABTestingService:
             max_tokens=2000
         )
         
-        # Configuration for Response B (Creative Mode)
+        # Configuration for Response B (Creative Mode with Opus 4)
         system_prompt_b = open("prompts/gp-creative.txt", "r").read()
         response_b_text = ABTestingService._generate_claude_response(
             conversation=conversation,
