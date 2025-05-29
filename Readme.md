@@ -13,6 +13,10 @@ A Slack bot powered by the most popular LLMs that provide intelligent responses 
 - **Home Tab**: Configure bot settings including:
   - API key configuration
   - Model selection
+- **A/B Testing**: Generates two different response variants for user feedback
+- **Interactive Voting**: Users can vote for their preferred response via Slack buttons
+- **Database Storage**: Stores all tests, responses, and votes in SQLite (local) or MySQL (production)
+- **Conversation Context**: Maintains conversation history for better responses
 
 
 ## Usage
@@ -39,3 +43,114 @@ A Slack bot powered by the most popular LLMs that provide intelligent responses 
 - Add database and fix home tab
 - Add more LLMs (decide if creating different apps or use commands)
 - Check out https://github.com/seratch/ChatGPT-in-Slack
+
+## A/B Testing Workflow
+
+1. **User asks a question** → Bot is mentioned or sends DM
+2. **Bot generates two responses**:
+   - **Response A**: Claude Sonnet 4 (standard assistant prompt, temperature=0.3)
+   - **Response B**: Claude Haiku 3.5 (creative prompt, temperature=1.0)
+3. **Both responses are posted** with voting buttons
+4. **User votes** for their preferred response
+5. **Data is stored** for analysis and model improvement
+
+## Database Schema
+
+### Tables Created:
+
+- **`ab_tests`**: Stores test metadata (user, channel, original prompt, context)
+- **`ab_responses`**: Stores the two generated responses with model settings
+- **`ab_votes`**: Stores user voting preferences
+
+## Setup
+
+### Prerequisites
+
+- Python 3.8+
+- Slack App with bot permissions
+- Anthropic API key
+- (Optional) MySQL database for production
+
+### Installation
+
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Set up environment variables:
+```bash
+# Required
+CHACHIBT_APP_BOT_AUTH_TOKEN=your_slack_bot_token
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# Optional (for production MySQL)
+MYSQL_HOST=your_mysql_host
+MYSQL_USER=your_mysql_user
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=your_mysql_database
+```
+
+3. Initialize database:
+```bash
+FLASK_APP=server.py python -m flask db init
+FLASK_APP=server.py python -m flask db upgrade
+```
+
+4. Test the A/B functionality:
+```bash
+python test_ab_testing.py
+```
+
+### Slack App Configuration
+
+Your Slack app needs these **Event Subscriptions**:
+- `app_mention` - When bot is mentioned
+- `message.channels` - Messages in channels
+- `message.im` - Direct messages
+
+**Interactive Components** endpoint: `https://yourdomain.com/interactive`
+
+**Bot Token Scopes**:
+- `app_mentions:read`
+- `channels:history`
+- `chat:write`
+- `im:history`
+- `im:write`
+
+## API Endpoints
+
+- `POST /event` - Slack event handler
+- `POST /interactive` - Slack interactive component handler (button clicks)
+- `GET /` - Health check
+
+## Testing
+
+Run the comprehensive test suite:
+```bash
+python test_ab_testing.py
+```
+
+This validates:
+- ✅ Database schema and tables
+- ✅ A/B test creation
+- ✅ Response generation with both models
+- ✅ Slack message formatting with buttons
+- ✅ Vote recording and retrieval
+
+## Production Deployment
+
+1. **Set up MySQL** database with credentials in environment variables
+2. **Configure Slack app** with your production URLs
+3. **Deploy** using your preferred method (Docker, cloud platform, etc.)
+4. **Run migrations**: `FLASK_APP=server.py python -m flask db upgrade`
+
+The app automatically detects MySQL vs SQLite based on environment variables.
+
+## Contributing
+
+1. Test your changes with `python test_ab_testing.py`
+2. Ensure all A/B testing functionality works
+3. Update documentation for any new features
+
+For questions about the A/B testing implementation, see `services/ab_testing.py` and `models.py`.
