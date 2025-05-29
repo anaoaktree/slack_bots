@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 
 # HTTP Status Codes
 HTTP_OK = 200
@@ -44,6 +45,7 @@ PA_SOURCE_DIR = os.environ.get("PA_SOURCE_DIR", "").strip()  # Path to source di
 PA_VIRTUALENV_PATH = (
     f"/home/{PA_USERNAME}/{PA_SOURCE_DIR}/venv"  # Path to virtualenv on PythonAnywhere
 )
+os.environ.setdefault("FLASK_ENV", "production")
 
 # Default exclusions in case .gitignore can't be loaded
 DEFAULT_EXCLUDE_DIRS = [
@@ -102,6 +104,11 @@ if PA_API_TOKEN.startswith("Token "):
 AUTH_HEADER = "Token " + PA_API_TOKEN
 HEADERS = {"Authorization": AUTH_HEADER}
 
+# Load environment variables from .prod.env if it exists
+if os.path.exists('.prod.env'):
+    load_dotenv('.prod.env')
+else:
+    load_dotenv()
 
 def validate_environment():
     """Check if all required environment variables are set and properly formatted."""
@@ -545,6 +552,23 @@ def reload_webapp(headers=HEADERS):
         return False
 
 
+def upload_env_file(headers=HEADERS):
+    """Upload .prod.env as .env to the server."""
+    if not os.path.exists('.prod.env'):
+        print("No .prod.env file found, skipping environment variables setup")
+        return False
+    
+    print("Uploading .prod.env as .env...")
+    remote_env_path = f"/home/{PA_USERNAME}/{PA_SOURCE_DIR}/.env"
+    
+    if upload_file('.prod.env', remote_env_path, headers):
+        print("Environment file uploaded successfully")
+        return True
+    else:
+        print("Failed to upload environment file")
+        return False
+
+
 def run_post_deployment_tasks(headers=HEADERS):
     """Run post-deployment tasks directly using a console."""
     print("\n=== Running post-deployment tasks ===")
@@ -677,6 +701,10 @@ def main():
         sys.exit(1)
 
     print("All files uploaded successfully")
+
+    # Upload .prod.env as .env file
+    if not upload_env_file(headers):
+        print("Warning: Failed to upload environment file")
 
     # Run post-deployment tasks
     if not run_post_deployment_tasks(headers):

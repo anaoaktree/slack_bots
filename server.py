@@ -46,8 +46,13 @@ migrate = Migrate(app, db)
 slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 
 # Create tables if they don't exist (for local development)
-with app.app_context():
-    db.create_all()
+# Skip during Flask CLI commands to avoid encoding issues
+if not os.environ.get('FLASK_CLI_RUNNING'):
+    with app.app_context():
+        try:
+            db.create_all()
+        except Exception as e:
+            logger.warning(f"Could not create database tables: {e}")
 
 def load_json_view(file_name: str) -> Dict[str, Any]:
     """Load JSON view file."""
