@@ -38,7 +38,7 @@ def analyze_ab_tests():
         
         print(f"🗳️  Vote Distribution:")
         print(f"   Response A (Sonnet 4): {votes_a} votes ({(votes_a/total_votes*100) if total_votes > 0 else 0:.1f}%)")
-        print(f"   Response B (Haiku 3.5): {votes_b} votes ({(votes_b/total_votes*100) if total_votes > 0 else 0:.1f}%)")
+        print(f"   Response B (Opus 4): {votes_b} votes ({(votes_b/total_votes*100) if total_votes > 0 else 0:.1f}%)")
         print()
         
         # Recent activity (last 7 days)
