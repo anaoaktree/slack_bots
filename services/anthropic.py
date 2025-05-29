@@ -11,8 +11,9 @@ logger = setup_logger(__name__)
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-haiku = "claude-3-5-haiku-latest"
-sonnet = "claude-3-5-sonnet-latest"
+haiku = "claude-4-haiku-latest"
+sonnet = "claude-sonnet-4-20250514"
+opus = "claude-opus-4-20250514"
 
 
 def get_creative_claude_response(conversation: List[Dict]) -> str:
@@ -56,7 +57,8 @@ def get_standard_claude_response(conversation: List[Dict]) -> str:
                     f"\t<cited_text>{citation.cited_text}</cited_text> "
                     f"(from {citation.document_title})"
                 )
-            if citations:
-                response.append("\n" + "\n".join(citations))
+            # TODO: think if citations are needed
+            # if citations:
+            #     response.append("\n" + "\n".join(citations))
     
     return "\n".join(response)

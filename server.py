@@ -6,9 +6,8 @@ import logging
 
 import certifi
 from dotenv import load_dotenv
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-
+from slack_sdk import WebClient
+from flask import Flask, jsonify, request
 from services import (
     get_conversation_history,
     get_creative_claude_response,
@@ -25,12 +24,11 @@ load_dotenv()
 # TODO logging.DEBUG to examine the 'ignore self reply' mode
 logger = setup_logger(__name__)
 
-# TODO make it async https://tools.slack.dev/bolt-python/concepts/async
+# https://tools.slack.dev/python-slack-sdk/installation/#handling-tokens
+
 # App Initialization
-app = App(
-    token=os.environ.get("SLACK_BOT_TOKEN"),
-    signing_secret=os.environ.get("SLACK_SIGNING_SECRET"),
-)
+app = Flask(__name__)
+slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 
 
 def load_json_view(file_name: str) -> Dict[str, Any]:
@@ -42,7 +40,7 @@ def load_json_view(file_name: str) -> Dict[str, Any]:
 
 
 # Event Handlers
-@app.event("app_home_opened")
+# @app.event("app_home_opened")
 def update_home_tab(
     client: Any, event: Dict[str, Any], logger: logging.Logger, ack: Any
 ) -> None:
@@ -55,7 +53,7 @@ def update_home_tab(
         logger.error(f"Error publishing home tab: {e}")
 
 
-@app.action("save_settings")
+# @app.action("save_settings")
 def handle_save_settings(
     ack: Any, body: Dict[str, Any], logger: logging.Logger
 ) -> None:
@@ -63,20 +61,81 @@ def handle_save_settings(
     # TODO
     ack()
     logger.info(body)
+# https://tools.slack.dev/node-slack-sdk/tutorials/local-development/
+# https://api.slack.com/apis/events-api
+@app.route("/event", methods=["POST"])
+def slack_event_handler():
+    # Get the JSON payload
+    payload = request.get_json()
+    # TODO: check how to make logger appear in pythonanywhere
+    logger.info(f"Received Slack event payload: {payload}")
+
+    # Handle Slack URL verification
+    if payload.get("type") == "url_verification":
+        return jsonify({"challenge": payload["challenge"]})
+
+    # Handle other events
+    event = payload.get("event", {})
+    event_type = event.get("type")
+    if event_type in ["app_mention", "message"]:
+        handle_message(event, slack_client)
+    
+    logger.info(f"Received Slack event type: {event_type}")
+
+    # TODO: Add your event handling logic here
+    # check making it async https://blog.pythonanywhere.com/198/
+    
+    # Return a 200 OK response to acknowledge receipt
+    return jsonify({"status": "ok"})
 
 
-@app.event("message")
-def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> None:
+"""
+app mention in channel
+{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "app_mention",#012    "ts": "1739981038.601839",#012    "client_msg_id": "9384d2e3-8e79-47d8-affe-5b946e405acb",#012    "text": "<@U08E1KS5EKU> testing one two three",#012    "team": "T089B7235HT",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "e066k",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "user",#012                "user_id": "U08E1KS5EKU"#012              },#012              {#012                "type": "text",#012                "text": " testing one two three"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981038.601839"#012  },#012  "type": "event_callback",#012  "event_id": "Ev08DM9EK56
+
+
+message in thread (no mention)
+Received Slack event payload: {#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "context_team_id": "T089B7235HT",#012  "context_enterprise_id": null,#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "message",#012    "ts": "1739981735.396829",#012    "client_msg_id": "5a1863d5-a8ec-453b-973f-6c85cfb97930",#012    "text": "Hey what is happening",#012    "team": "T089B7235HT",#012    "thread_ts": "1739981038.601839",#012    "parent_user_id": "U089E23JSJE",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "JxKan",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "text",#012                "text": "Hey what is happening"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981735.396829",#012    "channel_type": "channel"#012  },#012  "ty
+
+# message in thread with mention
+{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "app_mention",#012    "ts": "1739981950.771599",#012    "client_msg_id": "99d82487-2ce6-44d4-8575-a79c3f84beb4",#012    "text": "<@U08E1KS5EKU> message sent in thread with a mention",#012    "team": "T089B7235HT",#012    "thread_ts": "1739981038.601839",#012    "parent_user_id": "U089E23JSJE",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "r8Ac7",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "user",#012                "user_id": "U08E1KS5EKU"#012              },#012              {#012                "type": "text",#012                "text": " message sent in thread with a mention"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C0
+
+message in channel (no mention)
+{#012  "token": "M7DmOFh0DnEEuxRl3H0tzsW9",#012  "team_id": "T089B7235HT",#012  "context_team_id": "T089B7235HT",#012  "context_enterprise_id": null,#012  "api_app_id": "A08E17BK8H1",#012  "event": {#012    "user": "U089E23JSJE",#012    "type": "message",#012    "ts": "1739981963.188539",#012    "client_msg_id": "849168a0-6f73-4a08-aa1e-c23bb1b4a3a9",#012    "text": "Message sent in channel with no mention",#012    "team": "T089B7235HT",#012    "blocks": [#012      {#012        "type": "rich_text",#012        "block_id": "juN4A",#012        "elements": [#012          {#012            "type": "rich_text_section",#012            "elements": [#012              {#012                "type": "text",#012                "text": "Message sent in channel with no mention"#012              }#012            ]#012          }#012        ]#012      }#012    ],#012    "channel": "C08A2S74EKS",#012    "event_ts": "1739981963.188539",#012    "channel_type": "channel"#012  },#012  "type": "event_callback",#012  "event_id": "E
+"""
+
+# TODO:
+def handle_message(message: Dict[str, Any], client: WebClient) -> None:
+    # Initialize processed messages dict if it doesn't exist - TODO move this to a db
+    if not hasattr(handle_message, 'processed_messages'):
+        handle_message.processed_messages = {}
+
     """Handle incoming messages."""
-    channel_type = message.get("channel_type")
     bot_user_id = client.auth_test()["user_id"]
     user = message.get("user")
+    
+    # Ignoreif the message is from the bot itself
+    if user == bot_user_id:
+        logger.info("Skipping bot's own message")
+        return
+
+    channel_type = message.get("channel_type") 
     channel = message.get("channel")
     thread_ts = message.get("thread_ts", message.get("ts"))
-    logger.info(f"Received message from user {user} in channel {
-        channel} with id {message.get('id')}")
+    message_ts = message.get("ts")
+
+    # Add deduplication check using message timestamp. Check if message was already processed in this thread TODO: move this to a db
+    thread_messages = handle_message.processed_messages.get(thread_ts, set())
+    if message_ts in thread_messages:
+        logger.info(f"Skipping duplicate message {message_ts} in thread {thread_ts}")
+        return
+    # Store message as processed
+    if thread_ts not in handle_message.processed_messages:
+        handle_message.processed_messages[thread_ts] = set()
+    handle_message.processed_messages[thread_ts].add(message_ts)
+
+    logger.info(f"Received message from user {user} in channel {channel} with id {message.get('id')}")
     logger.info(f"Message {message}")
-    ack()
 
     # Check if bot should respond
     tagged_in_parent = False
@@ -86,11 +145,13 @@ def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> 
         )["messages"][0]
         tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
 
-    if not (
+    should_respond = (
         channel_type == "im"
         or f"<@{bot_user_id}>" in message.get("text", "")
         or tagged_in_parent
-    ):
+    )
+
+    if not should_respond:
         logger.info("Skipping message")
         return
 
@@ -102,12 +163,12 @@ def handle_message(message: Dict[str, Any], say: Any, client: Any, ack: Any) -> 
     response_text = f"<@{user}>{claude_reply}"
     if channel_type == "im":
         logger.info(f"Successfully sent response to user {user}")
-        say(response_text)
+        client.chat_postMessage(text=response_text, channel=channel)
     else:
-        say(text=response_text, thread_ts=thread_ts)
+        client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
 
-
-@app.command("/creative-gp")
+# TODO
+# @app.command("/creative-gp")
 def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) -> None:
     """Handle creative GP command."""
     user_id = body.get("user_id")
@@ -138,5 +199,6 @@ def handle_creative_gp(ack: Any, body: Dict[str, Any], client: Any, say: Any) ->
         logger.error(f"Error in creative-gp command: {str(e)}")
         say(text=f"Sorry, an error occurred: {str(e)} for your message: {body['text']}")
 
-if __name__ == "__main__":
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+@app.route("/", methods=["GET"])
+def hello():
+    return "<html><body><h1>Hello World</h1></body></html>"
