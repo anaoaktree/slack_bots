@@ -1,0 +1,279 @@
+{
+    "type": "home",
+    "blocks": [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🧪 A/B Testing Configuration",
+                "emoji": true
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Configure how your AI assistant generates two different response variants for A/B testing. Each response can have different settings for system prompts, models, and creativity levels."
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📝 Response A Settings",
+                "emoji": true
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_a_model_block",
+            "element": {
+                "type": "static_select",
+                "action_id": "response_a_model_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select model for Response A"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet (Fast, Balanced)"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus (Powerful, Creative)"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Model"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_a_temperature_block",
+            "element": {
+                "type": "static_select",
+                "action_id": "response_a_temperature_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select creativity level"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.0 - Very Consistent"
+                        },
+                        "value": "0.0"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Balanced"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Creative"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very Creative"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Creativity Level (Temperature)"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_a_prompt_block",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "response_a_prompt_input",
+                "multiline": true,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Enter custom system prompt for Response A or leave empty to use default..."
+                }
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt (Optional - Custom)"
+            },
+            "optional": true
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📝 Response B Settings",
+                "emoji": true
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_b_model_block",
+            "element": {
+                "type": "static_select",
+                "action_id": "response_b_model_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select model for Response B"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet (Fast, Balanced)"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus (Powerful, Creative)"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Model"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_b_temperature_block",
+            "element": {
+                "type": "static_select",
+                "action_id": "response_b_temperature_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select creativity level"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.0 - Very Consistent"
+                        },
+                        "value": "0.0"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Balanced"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Creative"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very Creative"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Creativity Level (Temperature)"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "response_b_prompt_block",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "response_b_prompt_input",
+                "multiline": true,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Enter custom system prompt for Response B or leave empty to use default..."
+                }
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt (Optional - Custom)"
+            },
+            "optional": true
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💾 Save Configuration",
+                        "emoji": true
+                    },
+                    "style": "primary",
+                    "action_id": "save_ab_config"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔄 Reset to Defaults",
+                        "emoji": true
+                    },
+                    "action_id": "reset_ab_config"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📋 View Current Settings",
+                        "emoji": true
+                    },
+                    "action_id": "view_current_config"
+                }
+            ]
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 *Tip:* Response A is typically used for standard responses, while Response B can be configured for more creative or specialized outputs. Leave system prompts empty to use the built-in defaults."
+                }
+            ]
+        }
+    ]
+} 

@@ -3,6 +3,7 @@ import json
 from typing import List, Dict, Tuple
 from models import db, ABTest, ABResponse
 from services.anthropic import claude, opus, sonnet
+from services.user_preferences import UserPreferencesService
 from utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -20,11 +21,14 @@ class ABTestingService:
         conversation: List[Dict]
     ) -> Tuple[ABTest, ABResponse, ABResponse]:
         """
-        Create A/B test with two different response variants.
+        Create A/B test with two different response variants using user preferences.
         
         Returns:
             Tuple of (ABTest, Response A, Response B)
         """
+        
+        # Get user preferences
+        user_prefs = UserPreferencesService.get_user_preferences(user_id)
         
         # Create AB test record
         ab_test = ABTest(
@@ -37,13 +41,13 @@ class ABTestingService:
         db.session.add(ab_test)
         db.session.flush()  # Get the ID without committing
         
-        # Configuration for Response A (Standard Assistant with Sonnet 4)
-        system_prompt_a = open("prompts/assistant_prompt.txt", "r").read()
+        # Configuration for Response A (using user preferences)
+        response_a_config = user_prefs['response_a']
         response_a_text = ABTestingService._generate_claude_response(
             conversation=conversation,
-            model=sonnet,
-            system_prompt=system_prompt_a,
-            temperature=0.3,
+            model=response_a_config['model'],
+            system_prompt=response_a_config['system_prompt'],
+            temperature=response_a_config['temperature'],
             max_tokens=2000
         )
         
@@ -51,19 +55,19 @@ class ABTestingService:
             test_id=ab_test.id,
             response_variant='A',
             response_text=response_a_text,
-            model_name=sonnet,
-            system_prompt=system_prompt_a,
-            temperature=0.3,
+            model_name=response_a_config['model'],
+            system_prompt=response_a_config['system_prompt'][:1000],  # Truncate for storage
+            temperature=response_a_config['temperature'],
             max_tokens=2000
         )
         
-        # Configuration for Response B (Creative Mode with Opus 4)
-        system_prompt_b = open("prompts/gp-creative.txt", "r").read()
+        # Configuration for Response B (using user preferences)
+        response_b_config = user_prefs['response_b']
         response_b_text = ABTestingService._generate_claude_response(
             conversation=conversation,
-            model=opus,
-            system_prompt=system_prompt_b,
-            temperature=1.0,
+            model=response_b_config['model'],
+            system_prompt=response_b_config['system_prompt'],
+            temperature=response_b_config['temperature'],
             max_tokens=2000
         )
         
@@ -71,9 +75,9 @@ class ABTestingService:
             test_id=ab_test.id,
             response_variant='B',
             response_text=response_b_text,
-            model_name=opus,
-            system_prompt=system_prompt_b,
-            temperature=1.0,
+            model_name=response_b_config['model'],
+            system_prompt=response_b_config['system_prompt'][:1000],  # Truncate for storage
+            temperature=response_b_config['temperature'],
             max_tokens=2000
         )
         
@@ -81,7 +85,7 @@ class ABTestingService:
         db.session.add(response_b)
         db.session.commit()
         
-        logger.info(f"Created A/B test {ab_test.id} with responses for user {user_id}")
+        logger.info(f"Created A/B test {ab_test.id} with user preferences for user {user_id}")
         
         return ab_test, response_a, response_b
     
@@ -95,8 +99,16 @@ class ABTestingService:
     ) -> str:
         """Generate a Claude response with specific parameters."""
         try:
+            # Map model names to actual model strings
+            model_mapping = {
+                'opus': opus,
+                'sonnet': sonnet
+            }
+            
+            actual_model = model_mapping.get(model, sonnet)  # Default to sonnet
+            
             claude_message = claude.messages.create(
-                model=model,
+                model=actual_model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 system=system_prompt,
