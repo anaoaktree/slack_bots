@@ -13,11 +13,16 @@ HTTP_OK = 200
 HTTP_CREATED = 201
 HTTP_NO_CONTENT = 204
 HTTP_UNAUTHORIZED = 401
+HTTP_TOO_MANY_REQUESTS = 429
 
 # Configuration Constants
 MIN_TOKEN_LENGTH = 8
 DEFAULT_TIMEOUT = 30  # seconds
 REQUEST_TIMEOUT = DEFAULT_TIMEOUT
+MAX_RETRIES = 5
+BASE_RETRY_DELAY = 1  # seconds
+REQUESTS_PER_MINUTE = 35  # Conservative limit (PA allows 40, we use 35 for safety)
+UPLOAD_STATE_FILE = "deployment_state.json"  # Track upload progress
 
 # Project configuration - this is the root directory of the slack bot project
 LOCAL_PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -171,7 +176,8 @@ def test_api_connection():
     print(f"API URL: {CPU_API_URL}")
 
     try:
-        response = requests.get(CPU_API_URL, headers=current_headers, timeout=REQUEST_TIMEOUT)
+        rate_limiter.wait_if_needed()
+        response = make_request_with_retry(requests.get, CPU_API_URL, headers=current_headers, timeout=REQUEST_TIMEOUT)
 
         if response.status_code == HTTP_OK:
             print("API connection successful!")
@@ -196,8 +202,9 @@ def test_api_connection():
                 alt_headers = {"Authorization": "Token " + PA_API_TOKEN}
                 print("\nTrying alternative header format...")
                 try:
-                    alt_response = requests.get(
-                        CPU_API_URL, headers=alt_headers, timeout=REQUEST_TIMEOUT
+                    rate_limiter.wait_if_needed()
+                    alt_response = make_request_with_retry(
+                        requests.get, CPU_API_URL, headers=alt_headers, timeout=REQUEST_TIMEOUT
                     )
                     if alt_response.status_code == HTTP_OK:
                         print("Alternative header format worked!")
@@ -213,8 +220,92 @@ def test_api_connection():
         return False, current_headers
 
 
+def make_request_with_retry(request_func, *args, max_retries=MAX_RETRIES, **kwargs):
+    """
+    Make a request with retry logic for rate limiting and transient errors.
+    
+    Args:
+        request_func: The requests function to call (requests.get, requests.post, etc.)
+        *args: Arguments to pass to the request function
+        max_retries: Maximum number of retry attempts
+        **kwargs: Keyword arguments to pass to the request function
+    
+    Returns:
+        Response object
+    """
+    last_exception = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = request_func(*args, **kwargs)
+            
+            if response.status_code == HTTP_TOO_MANY_REQUESTS:
+                # Parse the retry-after header or use default
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait_time = int(retry_after)
+                    except ValueError:
+                        # Fallback if Retry-After is not a number
+                        wait_time = BASE_RETRY_DELAY * (2 ** attempt)
+                else:
+                    # Extract wait time from response body if available
+                    try:
+                        error_data = response.json()
+                        detail = error_data.get('detail', '')
+                        if 'Expected available in' in detail:
+                            # Extract number from "Expected available in 42 seconds"
+                            import re
+                            match = re.search(r'(\d+) seconds', detail)
+                            wait_time = int(match.group(1)) if match else BASE_RETRY_DELAY * (2 ** attempt)
+                        else:
+                            wait_time = BASE_RETRY_DELAY * (2 ** attempt)
+                    except:
+                        wait_time = BASE_RETRY_DELAY * (2 ** attempt)
+                
+                if attempt < max_retries:
+                    print(f"Rate limited (429). Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"Max retries ({max_retries}) exceeded for rate limiting.")
+                    return response
+            
+            # Check for other retryable errors (5xx server errors, connection issues)
+            elif response.status_code >= 500:
+                if attempt < max_retries:
+                    wait_time = BASE_RETRY_DELAY * (2 ** attempt)
+                    print(f"Server error {response.status_code}. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"Max retries exceeded for server error {response.status_code}")
+                    return response
+            
+            # Success or non-retryable error
+            return response
+            
+        except requests.exceptions.RequestException as e:
+            last_exception = e
+            if attempt < max_retries:
+                wait_time = BASE_RETRY_DELAY * (2 ** attempt)
+                print(f"Request exception: {e}. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                print(f"Max retries exceeded for request exception: {e}")
+                raise e
+    
+    # This should never be reached, but just in case
+    if last_exception:
+        raise last_exception
+
+
 def upload_file(local_path, remote_path, headers=HEADERS):
-    """Upload a single file to PythonAnywhere."""
+    """Upload a single file to PythonAnywhere with retry logic."""
+    # Apply rate limiting before making the request
+    rate_limiter.wait_if_needed()
+    
     with open(local_path, "rb") as f:
         content = f.read()
 
@@ -226,19 +317,23 @@ def upload_file(local_path, remote_path, headers=HEADERS):
     print(f"Uploading to: {url}")
 
     try:
-        response = requests.post(
-            url, headers=headers, files={"content": ("filename", content)}, timeout=REQUEST_TIMEOUT
+        response = make_request_with_retry(
+            requests.post,
+            url, 
+            headers=headers, 
+            files={"content": ("filename", content)}, 
+            timeout=REQUEST_TIMEOUT
         )
 
         if response.status_code in (HTTP_OK, HTTP_CREATED):
-            print(f"Uploaded: {remote_path}")
+            print(f"✅ Uploaded: {remote_path}")
             return True
         else:
-            print(f"Failed to upload {remote_path}: {response.status_code}")
+            print(f"❌ Failed to upload {remote_path}: {response.status_code}")
             print(f"Response: {response.text[:500]}...")  # Print first 500 chars of response
             return False
     except Exception as e:
-        print(f"Error uploading {remote_path}: {e}")
+        print(f"❌ Error uploading {remote_path}: {e}")
         return False
 
 
@@ -298,12 +393,18 @@ def should_exclude(path):
 
 
 def upload_directory(local_dir, remote_path=None, headers=HEADERS):
-    """Upload all files in a directory recursively."""
-    print(f"Uploading directory {local_dir} to remote path {remote_path}")
-    success_count = 0
-    total_files = 0
+    """Upload all files in a directory recursively with resume capability."""
+    print(f"📁 Uploading directory {local_dir} to remote path {remote_path}")
+    
+    # Load previous state if it exists
+    previous_state = load_upload_state()
+    uploaded_files = set(previous_state.get("uploaded_files", [])) if previous_state else set()
+    failed_files = set(previous_state.get("failed_files", [])) if previous_state else set()
+    
+    # Collect all files to upload
+    all_files = []
     excluded_count = 0
-
+    
     for root, dirs, files in os.walk(local_dir):
         # Skip excluded directories - modify dirs in place to avoid walking
         dirs[:] = [d for d in dirs if not should_exclude(Path(root) / d)]
@@ -328,21 +429,82 @@ def upload_directory(local_dir, remote_path=None, headers=HEADERS):
 
             # Convert Windows backslashes to forward slashes if needed
             file_remote_path = str(file_remote_path).replace("\\", "/")
-
-            # Upload the file
-            if upload_file(local_path, file_remote_path, headers):
-                success_count += 1
-            total_files += 1
-
-    print(f"Uploaded {success_count}/{total_files} files successfully")
-    print(f"Excluded {excluded_count} files based on .gitignore and default exclusions")
-    return success_count == total_files
+            
+            all_files.append((local_path, file_remote_path))
+    
+    total_files = len(all_files)
+    success_count = len(uploaded_files)
+    failed_count = len(failed_files)
+    
+    print(f"📊 Upload Summary:")
+    print(f"   - Total files to process: {total_files}")
+    print(f"   - Already uploaded: {success_count}")
+    print(f"   - Previously failed: {failed_count}")
+    print(f"   - Remaining: {total_files - success_count}")
+    print(f"   - Excluded: {excluded_count}")
+    
+    if previous_state:
+        response = input("Do you want to resume the previous upload? (y/n): ").lower().strip()
+        if response != 'y':
+            uploaded_files.clear()
+            failed_files.clear()
+            success_count = 0
+            failed_count = 0
+            print("🔄 Starting fresh upload...")
+    
+    # Upload remaining files
+    for i, (local_path, file_remote_path) in enumerate(all_files, 1):
+        # Skip files that were already successfully uploaded
+        if file_remote_path in uploaded_files:
+            continue
+        
+        # Retry failed files, but show a warning
+        if file_remote_path in failed_files:
+            print(f"🔄 Retrying previously failed file: {file_remote_path}")
+            failed_files.discard(file_remote_path)
+        
+        progress = f"[{i}/{total_files}]"
+        print(f"\n{progress} Processing: {file_remote_path}")
+        
+        # Upload the file
+        if upload_file(local_path, file_remote_path, headers):
+            uploaded_files.add(file_remote_path)
+            success_count += 1
+        else:
+            failed_files.add(file_remote_path)
+            failed_count += 1
+            print(f"❌ Failed to upload {file_remote_path}")
+        
+        # Save state periodically (every 10 files) and after each upload
+        if i % 10 == 0 or i == total_files:
+            save_upload_state(uploaded_files, failed_files, total_files)
+    
+    # Final summary
+    actual_success_count = len(uploaded_files)
+    actual_failed_count = len(failed_files)
+    
+    print(f"\n📈 Final Upload Results:")
+    print(f"   - Successfully uploaded: {actual_success_count}/{total_files}")
+    print(f"   - Failed uploads: {actual_failed_count}")
+    print(f"   - Excluded files: {excluded_count}")
+    
+    if actual_failed_count > 0:
+        print(f"\n❌ Failed files:")
+        for failed_file in sorted(failed_files):
+            print(f"   - {failed_file}")
+        print(f"\n💡 You can re-run the script to retry failed uploads.")
+        return False
+    else:
+        print(f"✅ All files uploaded successfully!")
+        clear_upload_state()
+        return True
 
 
 def get_existing_consoles():
     """Get a list of existing consoles."""
     print("Checking for existing consoles...")
-    response = requests.get(CONSOLES_API_URL, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    rate_limiter.wait_if_needed()
+    response = make_request_with_retry(requests.get, CONSOLES_API_URL, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
     if response.status_code == HTTP_OK:
         consoles = response.json()
@@ -383,7 +545,9 @@ def create_console():
     clean_up_consoles()
 
     print("Creating new console...")
-    response = requests.post(
+    rate_limiter.wait_if_needed()
+    response = make_request_with_retry(
+        requests.post,
         CONSOLES_API_URL,
         headers=HEADERS,
         json={"executable": "bash", "arguments": "", "working_directory": f"/home/{PA_USERNAME}"},
@@ -415,8 +579,9 @@ def run_command_in_console(console_id, command):
     print(f"Running command: {command}")
 
     # Send the command
-    response = requests.post(
-        input_url, headers=HEADERS, json={"input": f"{command}\n"}, timeout=REQUEST_TIMEOUT
+    rate_limiter.wait_if_needed()
+    response = make_request_with_retry(
+        requests.post, input_url, headers=HEADERS, json={"input": f"{command}\n"}, timeout=REQUEST_TIMEOUT
     )
 
     if response.status_code != HTTP_OK:
@@ -432,7 +597,8 @@ def run_command_in_console(console_id, command):
     time.sleep(2)
 
     while attempts < max_attempts:
-        output_response = requests.get(output_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        rate_limiter.wait_if_needed()
+        output_response = make_request_with_retry(requests.get, output_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
         if output_response.status_code == HTTP_OK:
             new_output = output_response.json().get("output", "")
@@ -527,8 +693,9 @@ def close_console(console_id):
         return False
 
     print(f"Closing console {console_id}...")
-    response = requests.delete(
-        f"{CONSOLES_API_URL}{console_id}/", headers=HEADERS, timeout=REQUEST_TIMEOUT
+    rate_limiter.wait_if_needed()
+    response = make_request_with_retry(
+        requests.delete, f"{CONSOLES_API_URL}{console_id}/", headers=HEADERS, timeout=REQUEST_TIMEOUT
     )
 
     if response.status_code == HTTP_NO_CONTENT:
@@ -542,7 +709,8 @@ def close_console(console_id):
 def reload_webapp(headers=HEADERS):
     """Reload the web application to apply changes."""
     print(f"Reloading web application {PA_DOMAIN}...")
-    response = requests.post(RELOAD_API_URL, headers=headers, timeout=REQUEST_TIMEOUT)
+    rate_limiter.wait_if_needed()
+    response = make_request_with_retry(requests.post, RELOAD_API_URL, headers=headers, timeout=REQUEST_TIMEOUT)
 
     if response.status_code == HTTP_OK:
         print("Web application reloaded successfully")
@@ -667,24 +835,136 @@ def test_exclusions():
     return excluded_count == len(test_exclude_paths) and included_count == len(test_include_paths)
 
 
+class RateLimiter:
+    """Simple rate limiter to respect API limits."""
+    
+    def __init__(self, requests_per_minute=REQUESTS_PER_MINUTE):
+        self.requests_per_minute = requests_per_minute
+        self.min_interval = 60.0 / requests_per_minute  # seconds between requests
+        self.last_request_time = 0
+    
+    def wait_if_needed(self):
+        """Wait if necessary to respect rate limits."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.min_interval:
+            wait_time = self.min_interval - time_since_last
+            print(f"⏱️  Rate limiting: waiting {wait_time:.1f} seconds...")
+            time.sleep(wait_time)
+        
+        self.last_request_time = time.time()
+
+
+# Global rate limiter instance
+rate_limiter = RateLimiter()
+
+
+def save_upload_state(uploaded_files, failed_files, total_files):
+    """Save the current upload state to resume later."""
+    try:
+        import json
+        state = {
+            "uploaded_files": list(uploaded_files),
+            "failed_files": list(failed_files), 
+            "total_files": total_files,
+            "timestamp": time.time()
+        }
+        with open(UPLOAD_STATE_FILE, "w") as f:
+            json.dump(state, f, indent=2)
+        print(f"💾 Saved upload state to {UPLOAD_STATE_FILE}")
+    except Exception as e:
+        print(f"⚠️  Failed to save upload state: {e}")
+
+
+def load_upload_state():
+    """Load previous upload state if it exists."""
+    try:
+        import json
+        if os.path.exists(UPLOAD_STATE_FILE):
+            with open(UPLOAD_STATE_FILE, "r") as f:
+                state = json.load(f)
+            print(f"📂 Loaded previous upload state from {UPLOAD_STATE_FILE}")
+            print(f"   - {len(state.get('uploaded_files', []))} files already uploaded")
+            print(f"   - {len(state.get('failed_files', []))} files previously failed")
+            return state
+    except Exception as e:
+        print(f"⚠️  Failed to load upload state: {e}")
+    return None
+
+
+def clear_upload_state():
+    """Clear the upload state file after successful deployment."""
+    try:
+        if os.path.exists(UPLOAD_STATE_FILE):
+            os.remove(UPLOAD_STATE_FILE)
+            print(f"🧹 Cleared upload state file")
+    except Exception as e:
+        print(f"⚠️  Failed to clear upload state: {e}")
+
+
 def main():
     """Main deployment function."""
     validate_environment()
 
-    # Run the exclusion tests first
-    if len(sys.argv) > 1 and sys.argv[1] == "--test-only":
-        test_exclusions()
-        return
+    # Check command line arguments
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        
+        if arg == "--test-only":
+            test_exclusions()
+            return
+        elif arg == "--test":
+            if not test_exclusions():
+                print("Exclusion tests failed! Deployment aborted.")
+                sys.exit(1)
+        elif arg == "--resume":
+            print("🔄 Resume mode: Will attempt to resume any previous interrupted deployment.")
+        elif arg == "--retry-failed":
+            print("🔄 Retry mode: Will retry only previously failed uploads.")
+            # Load previous state and clear successful uploads, keeping only failed ones
+            previous_state = load_upload_state()
+            if previous_state:
+                # Keep only failed files for retry
+                failed_files = previous_state.get("failed_files", [])
+                if failed_files:
+                    print(f"Found {len(failed_files)} failed files to retry")
+                    # Create a new state with only failed files
+                    save_upload_state(set(), set(failed_files), len(failed_files))
+                else:
+                    print("No failed files found to retry")
+                    return
+            else:
+                print("No previous deployment state found")
+                return
+        elif arg == "--clear-state":
+            clear_upload_state()
+            print("🧹 Cleared deployment state. Next run will start fresh.")
+            return
+        elif arg == "--help":
+            print("PythonAnywhere Deployment Script")
+            print("Usage:")
+            print("  python deploy_to_pythonanywhere.py [options]")
+            print("")
+            print("Options:")
+            print("  --test-only        Run exclusion tests only")
+            print("  --test            Run exclusion tests before deployment") 
+            print("  --resume          Resume interrupted deployment")
+            print("  --retry-failed    Retry only previously failed uploads")
+            print("  --clear-state     Clear deployment state and start fresh")
+            print("  --help            Show this help message")
+            print("")
+            print("The script automatically handles:")
+            print("  - Rate limiting (35 requests/minute)")
+            print("  - Retry logic with exponential backoff")
+            print("  - Resume capability for interrupted deployments")
+            print("  - Progress tracking and state persistence")
+            return
 
-    # Optionally run the exclusion tests
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        if not test_exclusions():
-            print("Exclusion tests failed! Deployment aborted.")
-            sys.exit(1)
-
-    print(f"Deploying Slack Bot to PythonAnywhere for user {PA_USERNAME}")
-    print(f"Domain: {PA_DOMAIN}")
-    print(f"API Host: {PA_HOST}")
+    print(f"🚀 Deploying Slack Bot to PythonAnywhere for user {PA_USERNAME}")
+    print(f"🌐 Domain: {PA_DOMAIN}")
+    print(f"🖥️  API Host: {PA_HOST}")
+    print(f"⚡ Rate limit: {REQUESTS_PER_MINUTE} requests/minute")
 
     # Test the API connection before proceeding
     success, updated_headers = test_api_connection()
@@ -697,24 +977,27 @@ def main():
 
     # Upload the project directory
     if not upload_directory(LOCAL_PROJECT_DIR, f"/home/{PA_USERNAME}/{PA_SOURCE_DIR}", headers):
-        print("Failed to upload files")
+        print("❌ Some files failed to upload. You can re-run the script to retry.")
+        print("💡 Use --retry-failed to retry only the failed files.")
         sys.exit(1)
 
-    print("All files uploaded successfully")
+    print("✅ All files uploaded successfully")
 
     # Upload .prod.env as .env file
     if not upload_env_file(headers):
-        print("Warning: Failed to upload environment file")
+        print("⚠️  Warning: Failed to upload environment file")
 
     # Run post-deployment tasks
     if not run_post_deployment_tasks(headers):
-        print("Warning: Post-deployment tasks had issues")
+        print("⚠️  Warning: Post-deployment tasks had issues")
 
     # Reload the web application
     if not reload_webapp(headers):
         sys.exit(1)
 
-    print("Deployment completed successfully!")
+    print("🎉 Deployment completed successfully!")
+    print("🧹 Cleaning up deployment state...")
+    clear_upload_state()
 
 
 if __name__ == "__main__":
