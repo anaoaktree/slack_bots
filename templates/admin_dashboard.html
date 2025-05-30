@@ -1,0 +1,88 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block header %}Dashboard Overview{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- Statistics Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.total_users }}</h3>
+                <p>Total Users</p>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-file-text"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.total_prompts }}</h3>
+                <p>System Prompts</p>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-user-circle"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.total_personas }}</h3>
+                <p>AI Personas</p>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.total_tests }}</h3>
+                <p>A/B Tests</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="dashboard-section">
+        <h2>Quick Actions</h2>
+        <div class="quick-actions">
+            <a href="{{ url_for('admin_prompts_create') }}" class="action-card">
+                <i class="fas fa-plus-circle"></i>
+                <span>Create System Prompt</span>
+            </a>
+            <a href="{{ url_for('admin_personas_create') }}" class="action-card">
+                <i class="fas fa-plus-circle"></i>
+                <span>Create AI Persona</span>
+            </a>
+            <a href="{{ url_for('admin_users') }}" class="action-card">
+                <i class="fas fa-eye"></i>
+                <span>View Users</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="dashboard-section">
+        <h2>Recent Activity</h2>
+        <div class="activity-list">
+            {% for activity in recent_activity %}
+            <div class="activity-item">
+                <div class="activity-icon">
+                    <i class="fas fa-{{ activity.icon }}"></i>
+                </div>
+                <div class="activity-content">
+                    <p>{{ activity.description }}</p>
+                    <small>{{ activity.timestamp }}</small>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

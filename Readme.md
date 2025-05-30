@@ -294,6 +294,52 @@ pa-deploy deploy --dry-run
 pa-deploy check
 ```
 
+## 🔍 Log Debugging Tools
+
+This project includes comprehensive debugging tools to help troubleshoot your deployed Flask app on PythonAnywhere.
+
+### Quick Start
+
+```bash
+cd scripts
+python debug.py  # Interactive menu launcher
+```
+
+### Available Tools
+
+- **`get_latest_logs.py`** - Download current logs with analysis
+- **`get_logs_by_date.py`** - Get historical logs by date
+- **`troubleshoot.py`** - Interactive problem-solving guide
+- **`log_utils.py`** - Core utilities for log management
+
+### Common Debugging Commands
+
+```bash
+# Quick health check
+python get_latest_logs.py
+
+# Emergency debugging (when app is down)
+python troubleshoot.py  # Choose option 8
+
+# Check specific log types
+python get_latest_logs.py error
+python get_latest_logs.py access
+
+# Historical investigation
+python get_logs_by_date.py yesterday
+python get_logs_by_date.py 7  # 7 days ago
+```
+
+### What You Get
+
+- 📊 **HTTP status code analysis** (2xx success, 5xx errors)
+- ⚠️ **Error detection and counting** from application logs
+- 📁 **Automatic local file saving** with timestamps
+- 🔍 **Smart pattern recognition** for common issues
+- 📈 **Interactive troubleshooting guides** for different scenarios
+
+See `scripts/README.md` for detailed usage instructions.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to:

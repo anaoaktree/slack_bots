@@ -318,8 +318,8 @@ class PersonaManager:
             'system_prompt_title': system_prompt.title,
             'is_favorite': persona.is_favorite,
             'usage_count': persona.usage_count,
-            'created_at': persona.created_at.isoformat(),
-            'updated_at': persona.updated_at.isoformat()
+            'created_at': persona.created_at,  # Keep as datetime object for admin templates
+            'updated_at': persona.updated_at   # Keep as datetime object for admin templates
         }
     
     @staticmethod

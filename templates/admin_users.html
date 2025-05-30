@@ -1,0 +1,179 @@
+{% extends "admin_base.html" %}
+
+{% block title %}User Preferences{% endblock %}
+{% block header %}User Preferences Management{% endblock %}
+
+{% block header_actions %}
+<div class="search-box">
+    <i class="fas fa-search"></i>
+    <input type="text" id="user-search" placeholder="Search users..." onkeyup="filterTable('users-table', this.value)">
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="table-container">
+    <table class="admin-table" id="users-table">
+        <thead>
+            <tr>
+                <th>User ID</th>
+                <th>Chat Mode</th>
+                <th>Active Persona</th>
+                <th>A/B Persona A</th>
+                <th>A/B Persona B</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>
+                    <div class="user-info">
+                        <i class="fas fa-user"></i>
+                        <code>{{ user.user_id }}</code>
+                    </div>
+                </td>
+                <td>
+                    <span class="status-badge {{ 'enabled' if user.chat_mode_enabled else 'disabled' }}">
+                        <i class="fas fa-{{ 'check' if user.chat_mode_enabled else 'times' }}"></i>
+                        {{ 'Enabled' if user.chat_mode_enabled else 'Disabled' }}
+                    </span>
+                </td>
+                <td>
+                    {% if user.active_persona %}
+                        <span class="persona-badge">{{ user.active_persona }}</span>
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if user.ab_persona_a %}
+                        <span class="persona-badge persona-a">{{ user.ab_persona_a }}</span>
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if user.ab_persona_b %}
+                        <span class="persona-badge persona-b">{{ user.ab_persona_b }}</span>
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </td>
+                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ user.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="actions">
+                    <button class="btn btn-sm btn-primary" onclick="editUser('{{ user.user_id }}')">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteUser('{{ user.user_id }}')">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Edit User Modal -->
+<div id="editUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Edit User Preferences</h3>
+            <span class="close" onclick="closeModal('editUserModal')">&times;</span>
+        </div>
+        <form id="editUserForm" method="POST">
+            <div class="modal-body">
+                <input type="hidden" id="edit-user-id" name="user_id">
+                
+                <div class="form-group">
+                    <label for="edit-chat-mode">Chat Mode Enabled:</label>
+                    <input type="checkbox" id="edit-chat-mode" name="chat_mode_enabled">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-active-persona">Active Persona:</label>
+                    <select id="edit-active-persona" name="active_persona_id">
+                        <option value="">None</option>
+                        {% for persona in available_personas %}
+                        <option value="{{ persona.id }}">{{ persona.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-ab-persona-a">A/B Testing Persona A:</label>
+                    <select id="edit-ab-persona-a" name="ab_testing_persona_a_id">
+                        <option value="">None</option>
+                        {% for persona in available_personas %}
+                        <option value="{{ persona.id }}">{{ persona.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-ab-persona-b">A/B Testing Persona B:</label>
+                    <select id="edit-ab-persona-b" name="ab_testing_persona_b_id">
+                        <option value="">None</option>
+                        {% for persona in available_personas %}
+                        <option value="{{ persona.id }}">{{ persona.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editUser(userId) {
+    // Fetch user data and populate form
+    fetch(`/admin/users/${userId}`)
+        .then(response => response.json())
+        .then(user => {
+            document.getElementById('edit-user-id').value = user.user_id;
+            document.getElementById('edit-chat-mode').checked = user.chat_mode_enabled;
+            document.getElementById('edit-active-persona').value = user.active_persona_id || '';
+            document.getElementById('edit-ab-persona-a').value = user.ab_testing_persona_a_id || '';
+            document.getElementById('edit-ab-persona-b').value = user.ab_testing_persona_b_id || '';
+            
+            document.getElementById('editUserForm').action = `/admin/users/${userId}`;
+            document.getElementById('editUserModal').style.display = 'block';
+        });
+}
+
+function deleteUser(userId) {
+    if (confirm('Are you sure you want to delete this user\'s preferences?')) {
+        fetch(`/admin/users/${userId}`, {
+            method: 'DELETE'
+        }).then(() => {
+            location.reload();
+        });
+    }
+}
+
+document.getElementById('editUserForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData
+    }).then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Error updating user preferences');
+        }
+    });
+});
+</script>
+{% endblock %} 

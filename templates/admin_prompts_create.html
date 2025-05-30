@@ -1,0 +1,47 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Create System Prompt{% endblock %}
+{% block header %}Create New System Prompt{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <form method="POST" class="admin-form">
+        <div class="form-group">
+            <label for="title">Title:</label>
+            <input type="text" id="title" name="title" required placeholder="Enter prompt title">
+            <small class="form-help">A short, descriptive name for the prompt</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="description">Description:</label>
+            <input type="text" id="description" name="description" placeholder="Enter optional description">
+            <small class="form-help">Optional description of what this prompt is for</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="user_id">Owner User ID:</label>
+            <input type="text" id="user_id" name="user_id" required placeholder="SYSTEM_DEFAULT or user ID">
+            <small class="form-help">Use "SYSTEM_DEFAULT" for system prompts or a specific user ID</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="content">Prompt Content:</label>
+            <textarea id="content" name="content" rows="10" required placeholder="Enter the full prompt content here..."></textarea>
+            <small class="form-help">The full system prompt that will be sent to the AI</small>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="is_default" name="is_default">
+                Mark as System Default
+            </label>
+            <small class="form-help">Default prompts are available to all users</small>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('admin_prompts') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Prompt</button>
+        </div>
+    </form>
+</div>
+{% endblock %} 

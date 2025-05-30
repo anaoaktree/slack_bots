@@ -1,0 +1,60 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Create AI Persona{% endblock %}
+{% block header %}Create New AI Persona{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <form method="POST" class="admin-form">
+        <div class="form-group">
+            <label for="name">Name:</label>
+            <input type="text" id="name" name="name" required placeholder="Enter persona name">
+            <small class="form-help">A unique name for this AI persona</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="description">Description:</label>
+            <input type="text" id="description" name="description" placeholder="Enter optional description">
+            <small class="form-help">Optional description of what this persona is for</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="user_id">Owner User ID:</label>
+            <input type="text" id="user_id" name="user_id" required placeholder="Enter user ID">
+            <small class="form-help">The Slack user ID who owns this persona</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="model">AI Model:</label>
+            <select id="model" name="model" required>
+                <option value="">Select a model</option>
+                <option value="opus">Claude Opus</option>
+                <option value="sonnet">Claude Sonnet</option>
+            </select>
+            <small class="form-help">Choose the AI model for this persona</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="temperature">Temperature:</label>
+            <input type="number" id="temperature" name="temperature" min="0" max="2" step="0.1" value="0.7" required>
+            <small class="form-help">Controls randomness: 0.0 = deterministic, 2.0 = very creative</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="system_prompt_id">System Prompt:</label>
+            <select id="system_prompt_id" name="system_prompt_id" required>
+                <option value="">Select a system prompt</option>
+                {% for prompt in available_prompts %}
+                <option value="{{ prompt.id }}">{{ prompt.title }} ({{ 'System' if prompt.is_default else 'Custom' }})</option>
+                {% endfor %}
+            </select>
+            <small class="form-help">Choose the system prompt that defines this persona's behavior</small>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('admin_personas') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Persona</button>
+        </div>
+    </form>
+</div>
+{% endblock %} 
