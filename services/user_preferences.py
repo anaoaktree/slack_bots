@@ -16,41 +16,35 @@ class UserPreferencesService:
         Get user preferences with persona-based A/B testing configuration.
         Returns personas for Response A and Response B, creating defaults if needed.
         """
-        try:
-            user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
-            
-            if not user_prefs:
-                # Create user preferences with default personas
-                user_prefs = UserPreferencesService._create_default_user_preferences(user_id)
-            
-            # Get personas for A/B testing
-            persona_a = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_a_id, 'A')
-            persona_b = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_b_id, 'B')
-            
-            return {
-                'user_id': user_id,
-                'response_a': {
-                    'persona_id': persona_a['id'],
-                    'persona_name': persona_a['name'],
-                    'model': persona_a['model'],
-                    'temperature': persona_a['temperature'], 
-                    'system_prompt': persona_a['system_prompt']
-                },
-                'response_b': {
-                    'persona_id': persona_b['id'],
-                    'persona_name': persona_b['name'],
-                    'model': persona_b['model'],
-                    'temperature': persona_b['temperature'],
-                    'system_prompt': persona_b['system_prompt']
-                },
-                'chat_mode_enabled': user_prefs.chat_mode_enabled,
-                'active_persona_id': user_prefs.active_persona_id
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting user preferences for {user_id}: {e}")
-            # Return fallback with default personas
-            return UserPreferencesService._get_fallback_preferences(user_id)
+        user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+        
+        if not user_prefs:
+            # Create user preferences with default personas
+            user_prefs = UserPreferencesService._create_default_user_preferences(user_id)
+        
+        # Get personas for A/B testing
+        persona_a = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_a_id, 'A')
+        persona_b = UserPreferencesService._get_ab_persona(user_id, user_prefs.ab_testing_persona_b_id, 'B')
+        
+        return {
+            'user_id': user_id,
+            'response_a': {
+                'persona_id': persona_a['id'],
+                'persona_name': persona_a['name'],
+                'model': persona_a['model'],
+                'temperature': persona_a['temperature'], 
+                'system_prompt': persona_a['system_prompt']
+            },
+            'response_b': {
+                'persona_id': persona_b['id'],
+                'persona_name': persona_b['name'],
+                'model': persona_b['model'],
+                'temperature': persona_b['temperature'],
+                'system_prompt': persona_b['system_prompt']
+            },
+            'chat_mode_enabled': user_prefs.chat_mode_enabled,
+            'active_persona_id': user_prefs.active_persona_id
+        }
     
     @staticmethod
     def set_ab_testing_personas(user_id: str, persona_a_id: int, persona_b_id: int) -> bool:
@@ -153,7 +147,7 @@ class UserPreferencesService:
                 user_id=user_id,
                 ab_testing_persona_a_id=assistant_persona['id'],
                 ab_testing_persona_b_id=creative_persona['id'],
-                chat_mode_enabled=False,
+                chat_mode_enabled=True,  # Default to chat mode
                 active_persona_id=assistant_persona['id']
             )
             
@@ -166,27 +160,4 @@ class UserPreferencesService:
         except Exception as e:
             logger.error(f"Error creating default user preferences for {user_id}: {e}")
             db.session.rollback()
-            raise e
-    
-    @staticmethod
-    def _get_fallback_preferences(user_id: str) -> Dict:
-        """Get fallback preferences when database access fails."""
-        return {
-            'user_id': user_id,
-            'response_a': {
-                'persona_id': None,
-                'persona_name': 'Assistant (fallback)',
-                'model': 'sonnet',
-                'temperature': 0.3,
-                'system_prompt': 'You are a helpful AI assistant.'
-            },
-            'response_b': {
-                'persona_id': None,
-                'persona_name': 'Creative (fallback)', 
-                'model': 'opus',
-                'temperature': 1.0,
-                'system_prompt': 'You are a creative and expressive AI assistant.'
-            },
-            'chat_mode_enabled': False,
-            'active_persona_id': None
-        } 
+            raise e 

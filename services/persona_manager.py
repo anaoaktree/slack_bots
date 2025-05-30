@@ -44,34 +44,24 @@ class PersonaManager:
     @staticmethod
     def get_user_personas(user_id: str) -> List[Dict]:
         """Get all personas for a user, creating defaults if none exist."""
-        try:
-            # Ensure default prompts and personas exist (with caching)
-            PersonaManager._ensure_default_personas(user_id)
-            
-            personas = AIPersona.query.filter_by(user_id=user_id).order_by(
-                AIPersona.is_favorite.desc(),
-                AIPersona.usage_count.desc(),
-                AIPersona.name
-            ).all()
-            
-            return [PersonaManager._persona_to_dict(persona) for persona in personas]
-            
-        except Exception as e:
-            logger.error(f"Error getting user personas for {user_id}: {e}")
-            return PersonaManager._get_fallback_personas()
+        # Ensure default prompts and personas exist (with caching)
+        PersonaManager._ensure_default_personas(user_id)
+        
+        personas = AIPersona.query.filter_by(user_id=user_id).order_by(
+            AIPersona.is_favorite.desc(),
+            AIPersona.usage_count.desc(),
+            AIPersona.name
+        ).all()
+        
+        return [PersonaManager._persona_to_dict(persona) for persona in personas]
     
     @staticmethod
     def get_persona_by_id(persona_id: int, user_id: str) -> Optional[Dict]:
         """Get a specific persona by ID."""
-        try:
-            persona = AIPersona.query.filter_by(id=persona_id, user_id=user_id).first()
-            if persona:
-                return PersonaManager._persona_to_dict(persona)
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting persona {persona_id} for user {user_id}: {e}")
-            return None
+        persona = AIPersona.query.filter_by(id=persona_id, user_id=user_id).first()
+        if persona:
+            return PersonaManager._persona_to_dict(persona)
+        return None
     
     @staticmethod
     def create_persona(user_id: str, name: str, model: str, temperature: float,
@@ -222,20 +212,15 @@ class PersonaManager:
     @staticmethod
     def get_active_persona(user_id: str) -> Optional[Dict]:
         """Get the active persona for chat mode."""
-        try:
-            from models import UserPreferences
-            user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
-            
-            if user_prefs and user_prefs.active_persona_id:
-                return PersonaManager.get_persona_by_id(user_prefs.active_persona_id, user_id)
-            
-            # Default to first persona
-            personas = PersonaManager.get_user_personas(user_id)
-            return personas[0] if personas else None
-            
-        except Exception as e:
-            logger.error(f"Error getting active persona for user {user_id}: {e}")
-            return None
+        from models import UserPreferences
+        user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+        
+        if user_prefs and user_prefs.active_persona_id:
+            return PersonaManager.get_persona_by_id(user_prefs.active_persona_id, user_id)
+        
+        # Default to first persona
+        personas = PersonaManager.get_user_personas(user_id)
+        return personas[0] if personas else None
     
     @staticmethod
     def set_active_persona(user_id: str, persona_id: int) -> bool:
@@ -336,26 +321,6 @@ class PersonaManager:
             'created_at': persona.created_at.isoformat(),
             'updated_at': persona.updated_at.isoformat()
         }
-    
-    @staticmethod
-    def _get_fallback_personas() -> List[Dict]:
-        """Get fallback personas when database access fails."""
-        return [
-            {
-                'id': None,
-                'name': 'Assistant (fallback)',
-                'description': 'Helpful, accurate, and balanced responses',
-                'model': 'sonnet',
-                'temperature': 0.3,
-                'system_prompt': 'You are a helpful AI assistant.',
-                'system_prompt_id': None,
-                'system_prompt_title': 'Assistant',
-                'is_favorite': True,
-                'usage_count': 0,
-                'created_at': '',
-                'updated_at': ''
-            }
-        ]
     
     @staticmethod
     def _load_prompt_file(filename: str) -> str:

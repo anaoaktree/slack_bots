@@ -1,4 +1,5 @@
 import os
+import traceback
 from typing import Dict, List, Optional, Tuple
 from models import db, UserPreferences
 from services.persona_manager import PersonaManager
@@ -14,15 +15,15 @@ class ChatService:
     
     @staticmethod
     def get_user_mode(user_id: str) -> str:
-        """Get the user's preferred mode (ab_testing or chat_mode)."""
+        """Get the user's preferred mode (chat_mode or ab_testing)."""
         try:
             user_prefs = UserPreferences.query.filter_by(user_id=user_id).first()
-            if user_prefs and user_prefs.chat_mode_enabled:
-                return "chat_mode"
-            return "ab_testing"  # Default to A/B testing
+            if user_prefs and not user_prefs.chat_mode_enabled:
+                return "ab_testing"
+            return "chat_mode"  # Default to chat mode
         except Exception as e:
             logger.error(f"Error getting user mode for {user_id}: {e}")
-            return "ab_testing"
+            return "chat_mode"  # Default to chat mode on error
     
     @staticmethod
     def set_user_mode(user_id: str, mode: str) -> bool:
@@ -52,7 +53,7 @@ class ChatService:
         
         Returns:
             Dict with keys:
-                - mode: "ab_testing" or "chat_mode"
+                - mode: "chat_mode" or "ab_testing"
                 - responses: List of response dictionaries
                 - metadata: Additional info about the response
         """
@@ -65,15 +66,32 @@ class ChatService:
                 return ChatService._handle_ab_testing_mode(user_id, channel_id, thread_ts, message_text, conversation)
                 
         except Exception as e:
-            logger.error(f"Error handling message for user {user_id}: {e}")
-            # Fallback to simple response
+            # Enhanced error logging
+            error_details = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "thread_ts": thread_ts,
+                "message_length": len(message_text) if message_text else 0,
+                "conversation_length": len(conversation) if conversation else 0,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "anthropic_api_key_present": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                "anthropic_api_key_prefix": os.environ.get("ANTHROPIC_API_KEY", "")[:10] if os.environ.get("ANTHROPIC_API_KEY") else "None"
+            }
+            
+            # Log full error details
+            logger.error(f"❌ CRITICAL ERROR handling message for user {user_id}: {e}")
+            logger.error(f"🔍 Error Details: {error_details}")
+            logger.error(f"📝 Full Traceback:\n{traceback.format_exc()}")
+            
+            # Fallback to simple response in chat mode (default behavior)
             return {
-                "mode": "fallback",
+                "mode": "chat_mode",
                 "responses": [{
                     "text": "Sorry, I encountered an error processing your message. Please try again.",
                     "type": "error"
                 }],
-                "metadata": {"error": str(e)}
+                "metadata": {"error": str(e), "error_details": error_details}
             }
     
     @staticmethod

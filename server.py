@@ -145,173 +145,16 @@ def load_json_view(file_name: str) -> Dict[str, Any]:
         return json.load(file)
 
 
-def truncate_slack_text_recursive(obj: Any, max_length: int = 70) -> Any:
-    """
-    Recursively truncate all text elements in a Slack view to ensure they don't exceed max_length.
-    This prevents Slack API errors due to text being too long.
-    """
-    if isinstance(obj, dict):
-        result = {}
-        for key, value in obj.items():
-            if key == "text" and isinstance(value, str):
-                # Truncate text directly
-                if len(value) > max_length:
-                    result[key] = value[:max_length-3] + "..."
-                else:
-                    result[key] = value
-            else:
-                # Recursively process nested objects
-                result[key] = truncate_slack_text_recursive(value, max_length)
-        return result
-    elif isinstance(obj, list):
-        # Process each item in the list
-        return [truncate_slack_text_recursive(item, max_length) for item in obj]
-    else:
-        # Return primitive values unchanged
-        return obj
-
-
 def update_home_tab_with_user_data(user_id: str) -> Dict[str, Any]:
-    """Load unified home tab and populate with user's current settings."""
+    """Load modal-based home tab and populate with user's current settings."""
     try:
-        view = load_json_view("app_home_unified")
-        
-        # Get user preferences and personas
-        user_prefs = UserPreferencesService.get_user_preferences(user_id)
-        personas = PersonaManager.get_user_personas(user_id)
-        
-        # Update mode selector - default to chat mode or last used
-        current_mode = "chat_mode" if user_prefs.get('chat_mode_enabled') else "ab_testing"
-        for block in view['blocks']:
-            if block.get('type') == 'section' and block.get('accessory', {}).get('action_id') == 'mode_selector':
-                for option in block['accessory']['options']:
-                    if option['value'] == current_mode:
-                        block['accessory']['initial_option'] = option
-                        break
-        
-        # Update persona dropdowns with actual user personas
-        persona_options = []
-        for persona in personas:
-            # Construct option text (global truncation will handle length limits)
-            name = persona['name']
-            description = persona.get('description', 'Custom persona')
-            option_text = f"{name} - {description}"
-            
-            persona_options.append({
-                "text": {
-                    "type": "plain_text",
-                    "text": option_text
-                },
-                "value": str(persona['id'])
-            })
-        
-        # Get active persona for chat mode
-        active_persona = None
-        if user_prefs.get('active_persona_id'):
-            active_persona = PersonaManager.get_persona_by_id(user_prefs['active_persona_id'], user_id)
-        if not active_persona and personas:
-            active_persona = personas[0]  # Default to first persona
-        
-        # Get A/B testing personas
-        persona_a = user_prefs.get('response_a', {})
-        persona_b = user_prefs.get('response_b', {})
-        
-        # Update all persona selectors and populate with data
-        for block in view['blocks']:
-            accessory = block.get('accessory', {})
-            action_id = accessory.get('action_id')
-            
-            # Update persona selector dropdowns
-            if action_id in ['ab_persona_a_selector', 'ab_persona_b_selector', 'chat_persona_selector']:
-                if persona_options:
-                    accessory['options'] = persona_options
-                    
-                    # Set initial selections based on user preferences
-                    if action_id == 'ab_persona_a_selector' and persona_a.get('persona_id'):
-                        persona_id = str(persona_a['persona_id'])
-                        for option in persona_options:
-                            if option['value'] == persona_id:
-                                accessory['initial_option'] = option
-                                break
-                    elif action_id == 'ab_persona_b_selector' and persona_b.get('persona_id'):
-                        persona_id = str(persona_b['persona_id'])
-                        for option in persona_options:
-                            if option['value'] == persona_id:
-                                accessory['initial_option'] = option
-                                break
-                    elif action_id == 'chat_persona_selector' and active_persona:
-                        persona_id = str(active_persona['id'])
-                        for option in persona_options:
-                            if option['value'] == persona_id:
-                                accessory['initial_option'] = option
-                                break
-            
-            # Update chat mode persona details
-            if block.get('type') == 'section' and block.get('fields'):
-                fields = block['fields']
-                if len(fields) == 2 and active_persona and 'Model:' in fields[0]['text']:
-                    # This is the chat mode persona details section
-                    model_name = "Claude Sonnet" if active_persona['model'] == 'sonnet' else "Claude Opus"
-                    temp_desc = f"{active_persona['temperature']} ({'Factual' if active_persona['temperature'] <= 0.3 else 'Balanced' if active_persona['temperature'] <= 0.7 else 'Creative'})"
-                    
-                    fields[0]['text'] = f"*Model:* {model_name}"
-                    fields[1]['text'] = f"*Temperature:* {temp_desc}"
-            
-            # Update chat mode system prompt
-            if (block.get('type') == 'section' and 
-                block.get('text', {}).get('text', '').startswith('*System Prompt:*')):
-                if active_persona:
-                    prompt_preview = active_persona['system_prompt'][:150] + "..." if len(active_persona['system_prompt']) > 150 else active_persona['system_prompt']
-                    block['text']['text'] = f"*System Prompt:*\n{prompt_preview}"
-            
-            # Update A/B testing persona details (side-by-side comparison)
-            if (block.get('type') == 'section' and block.get('fields') and 
-                len(block['fields']) == 2 and 
-                any('Assistant' in field.get('text', '') and 'Model:' in field.get('text', '') for field in block['fields'])):
-                # This is the A/B comparison details section
-                
-                # Update Persona A details
-                if persona_a.get('persona_name'):
-                    model_a = "Claude Sonnet" if persona_a.get('model') == 'sonnet' else "Claude Opus"
-                    temp_a = persona_a.get('temperature', 0.7)
-                    temp_desc_a = f"{temp_a} ({'Factual' if temp_a <= 0.3 else 'Balanced' if temp_a <= 0.7 else 'Creative'})"
-                    
-                    block['fields'][0]['text'] = (f"*A: {persona_a['persona_name']}*\n"
-                                                f"• Model: {model_a}\n"
-                                                f"• Temperature: {temp_desc_a}\n"
-                                                f"• Usage: {personas[0].get('usage_count', 0)} times" if personas else "")
-                
-                # Update Persona B details  
-                if persona_b.get('persona_name'):
-                    model_b = "Claude Sonnet" if persona_b.get('model') == 'sonnet' else "Claude Opus"
-                    temp_b = persona_b.get('temperature', 0.7)
-                    temp_desc_b = f"{temp_b} ({'Factual' if temp_b <= 0.3 else 'Balanced' if temp_b <= 0.7 else 'Creative'})"
-                    
-                    block['fields'][1]['text'] = (f"*B: {persona_b['persona_name']}*\n"
-                                                f"• Model: {model_b}\n"
-                                                f"• Temperature: {temp_desc_b}\n"
-                                                f"• Usage: {personas[1].get('usage_count', 0)} times" if len(personas) > 1 else "")
-            
-            # Update A/B testing system prompts preview
-            if (block.get('type') == 'section' and block.get('fields') and
-                len(block['fields']) == 2 and
-                any('Prompt A:' in field.get('text', '') for field in block['fields'])):
-                # This is the A/B prompts comparison section
-                
-                if persona_a.get('system_prompt'):
-                    prompt_a_preview = persona_a['system_prompt'][:80] + "..." if len(persona_a['system_prompt']) > 80 else persona_a['system_prompt']
-                    block['fields'][0]['text'] = f"*Prompt A:* {prompt_a_preview}"
-                
-                if persona_b.get('system_prompt'):
-                    prompt_b_preview = persona_b['system_prompt'][:80] + "..." if len(persona_b['system_prompt']) > 80 else persona_b['system_prompt']
-                    block['fields'][1]['text'] = f"*Prompt B:* {prompt_b_preview}"
-        
-        return view
+        # Use the modal-based home tab view
+        return update_modal_based_home_tab(user_id)
         
     except Exception as e:
         logger.error(f"Error building home tab for user {user_id}: {e}")
-        # Fallback to basic view
-        return load_json_view("app_home_unified")
+        # Fallback to basic modal-based view
+        return load_json_view("app_home_modal_based")
 
 def safe_publish_home_tab(user_id: str, view: Dict[str, Any] = None) -> bool:
     """
@@ -322,10 +165,9 @@ def safe_publish_home_tab(user_id: str, view: Dict[str, Any] = None) -> bool:
         if view is None:
             view = update_home_tab_with_user_data(user_id)
         
-        # Apply text truncation to the entire view to prevent Slack API errors
-        truncated_view = truncate_slack_text_recursive(view)
-        
-        slack_client.views_publish(user_id=user_id, view=truncated_view)
+        # Publish the view directly without aggressive truncation
+        # Slack supports up to 3000 characters for most text elements
+        slack_client.views_publish(user_id=user_id, view=view)
         logger.info(f"Successfully published home tab for user {user_id}")
         return True
         
@@ -495,19 +337,9 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
                 
                 logger.info(f"Sent A/B testing responses for test {metadata.get('ab_test_id')}")
         
-        else:
-            # Fallback or error mode
-            if responses:
-                response_text = f"<@{user}> {responses[0].get('text', 'Sorry, something went wrong.')}"
-                
-                if channel_type == "im":
-                    client.chat_postMessage(text=response_text, channel=channel)
-                else:
-                    client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
-        
     except Exception as e:
         logger.error(f"Error handling message with ChatService: {e}")
-        # Ultimate fallback
+        # Fallback to normal chat mode using standard Claude response
         try:
             claude_reply = get_standard_claude_response(conversation)
             response_text = f"<@{user}> {claude_reply}"
@@ -517,7 +349,7 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
             else:
                 client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
                 
-            logger.info("Sent fallback response")
+            logger.info("Sent fallback response using standard chat mode")
         except Exception as fallback_e:
             logger.error(f"Even fallback failed: {fallback_e}")
 
@@ -559,16 +391,26 @@ def handle_interactive_component():
     elif action_id == "save_ab_settings":
         return handle_save_ab_settings(payload)
     
-    elif action_id in ["set_active_persona", "switch_to_chat_mode"]:
-        return handle_chat_mode_actions(payload, action)
-    
     # Handle persona management actions
     elif action_id in ["view_personas", "create_persona", "view_analytics"]:
         return handle_persona_management(payload, action)
     
-    # Handle persona editing actions
-    elif action_id in ["edit_chat_persona", "edit_ab_persona_a", "edit_ab_persona_b"]:
-        return handle_edit_persona_actions(payload, action)
+    # Handle modal-based editing actions
+    elif action_id == "edit_chat_persona":
+        return handle_edit_chat_persona_modal(payload, action)
+    
+    elif action_id == "configure_ab_testing":
+        return handle_configure_ab_testing_modal(payload, action)
+    
+    elif action_id == "delete_persona":
+        return handle_delete_persona(payload, action)
+    
+    # Handle inline persona editing actions (legacy)
+    elif action_id == "save_chat_persona":
+        return handle_save_chat_persona(payload)
+    
+    elif action_id == "save_ab_configuration":
+        return handle_save_ab_configuration(payload)
     
     # Handle modal submissions
     elif payload.get("type") == "view_submission":
@@ -605,7 +447,7 @@ def handle_mode_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> An
 
 
 def handle_ab_persona_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
-    """Handle A/B persona selections."""
+    """Handle A/B persona selections and refresh home tab with selected persona data."""
     try:
         user_id = payload.get("user", {}).get("id")
         action_id = action.get("action_id")
@@ -619,6 +461,10 @@ def handle_ab_persona_selection(payload: Dict[str, Any], action: Dict[str, Any])
         success = UserPreferencesService.update_ab_persona(user_id, response_key, int(persona_id))
         
         if success:
+            # Refresh the home tab to populate fields with selected persona data
+            view = update_home_tab_with_user_data(user_id)
+            safe_publish_home_tab(user_id, view)
+            
             logger.info(f"Updated {response_key} persona to {persona_id} for user {user_id}")
         
         return jsonify({"status": "ok"})
@@ -629,7 +475,7 @@ def handle_ab_persona_selection(payload: Dict[str, Any], action: Dict[str, Any])
 
 
 def handle_chat_persona_selection(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
-    """Handle chat persona selection."""
+    """Handle chat persona selection and refresh home tab with selected persona data."""
     try:
         user_id = payload.get("user", {}).get("id")
         persona_id = action.get("selected_option", {}).get("value")
@@ -637,10 +483,24 @@ def handle_chat_persona_selection(payload: Dict[str, Any], action: Dict[str, Any
         if not all([user_id, persona_id]):
             return jsonify({"error": "Missing data"}), 400
         
-        # Update active persona (but don't switch mode automatically)
+        # Get persona name for confirmation
+        persona = PersonaManager.get_persona_by_id(int(persona_id), user_id)
+        persona_name = persona['name'] if persona else f"Persona {persona_id}"
+        
+        # Update active persona
         success = PersonaManager.set_active_persona(user_id, int(persona_id))
         
         if success:
+            # Refresh the home tab to populate fields with selected persona data
+            view = update_home_tab_with_user_data(user_id)
+            safe_publish_home_tab(user_id, view)
+            
+            # Send confirmation message with refresh instruction
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text=f"✅ **Active persona changed to '{persona_name}'**\n\n🔄 *The home tab should refresh automatically, but if you don't see the updated fields below, please refresh your Slack app or click on another tab and back to the Home tab.*"
+            )
+            
             logger.info(f"Updated active persona to {persona_id} for user {user_id}")
         
         return jsonify({"status": "ok"})
@@ -671,43 +531,6 @@ def handle_save_ab_settings(payload: Dict[str, Any]) -> Any:
     except Exception as e:
         logger.error(f"Error saving A/B settings: {e}")
         return jsonify({"error": "Failed to save settings"}), 500
-
-
-def handle_chat_mode_actions(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
-    """Handle chat mode related actions."""
-    try:
-        user_id = payload.get("user", {}).get("id")
-        action_id = action.get("action_id")
-        
-        if action_id == "switch_to_chat_mode":
-            # Switch to chat mode
-            success = ChatService.set_user_mode(user_id, "chat_mode")
-            
-            if success:
-                # Update home tab
-                view = update_home_tab_with_user_data(user_id)
-                safe_publish_home_tab(user_id, view)
-                
-                # Send confirmation
-                slack_client.chat_postMessage(
-                    channel=user_id,
-                    text="✅ Switched to Chat Mode! You'll now chat with your active persona. Use the home tab to switch personas anytime."
-                )
-                
-                logger.info(f"Switched user {user_id} to chat mode")
-        
-        elif action_id == "set_active_persona":
-            # This just confirms the current selection
-            slack_client.chat_postMessage(
-                channel=user_id,
-                text="✅ Active persona confirmed! Switch to Chat Mode to start using it."
-            )
-        
-        return jsonify({"status": "ok"})
-        
-    except Exception as e:
-        logger.error(f"Error handling chat mode action: {e}")
-        return jsonify({"error": "Failed to process action"}), 500
 
 
 def handle_persona_management(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
@@ -756,87 +579,322 @@ def handle_persona_management(payload: Dict[str, Any], action: Dict[str, Any]) -
         return jsonify({"error": "Failed to process action"}), 500
 
 
-def handle_edit_persona_actions(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
-    """Handle edit persona actions."""
+def handle_save_chat_persona(payload: Dict[str, Any]) -> Any:
+    """Handle saving chat persona from inline form."""
     try:
         user_id = payload.get("user", {}).get("id")
-        action_id = action.get("action_id")
         
-        # Determine which persona to edit
-        persona_id = None
+        # Extract form values from home tab state
+        values = payload.get("view", {}).get("state", {}).get("values", {})
         
-        if action_id == "edit_chat_persona":
-            # Get active persona
-            user_prefs = UserPreferencesService.get_user_preferences(user_id)
-            persona_id = user_prefs.get('active_persona_id')
-            
-        elif action_id == "edit_ab_persona_a":
-            # Get A/B persona A
-            user_prefs = UserPreferencesService.get_user_preferences(user_id)
-            persona_id = user_prefs.get('response_a', {}).get('persona_id')
-            
-        elif action_id == "edit_ab_persona_b":
-            # Get A/B persona B
-            user_prefs = UserPreferencesService.get_user_preferences(user_id)
-            persona_id = user_prefs.get('response_b', {}).get('persona_id')
+        # Get selected persona ID from the selector
+        selected_persona_id = values.get("chat_persona_selector", {}).get("chat_persona_selector", {}).get("selected_option", {}).get("value")
         
-        if not persona_id:
+        # Extract form values
+        persona_name = values.get("chat_persona_name", {}).get("chat_name_input", {}).get("value", "").strip()
+        description = values.get("chat_persona_description", {}).get("chat_description_input", {}).get("value", "").strip()
+        model = values.get("chat_ai_model", {}).get("chat_model_select", {}).get("selected_option", {}).get("value")
+        temperature_str = values.get("chat_temperature", {}).get("chat_temperature_select", {}).get("selected_option", {}).get("value")
+        system_prompt = values.get("chat_system_prompt", {}).get("chat_prompt_input", {}).get("value", "").strip()
+        
+        # Convert temperature to float
+        try:
+            temperature = float(temperature_str) if temperature_str else 0.7
+        except (ValueError, TypeError):
+            temperature = 0.7
+        
+        # Validate required fields
+        if not all([persona_name, model, system_prompt]):
             slack_client.chat_postMessage(
                 channel=user_id,
-                text="⚠️ No persona selected for editing. Please select a persona first."
+                text="❌ Please fill in all required fields: Persona Name, AI Model, and System Prompt."
             )
             return jsonify({"status": "ok"})
         
-        # Get persona details
-        persona = PersonaManager.get_persona_by_id(persona_id, user_id)
-        if not persona:
-            slack_client.chat_postMessage(
-                channel=user_id,
-                text="⚠️ Selected persona not found. It may have been deleted."
+        if selected_persona_id:
+            # Update existing persona
+            persona_id = int(selected_persona_id)
+            
+            # Get current persona to check access and get current system prompt
+            current_persona = PersonaManager.get_persona_by_id(persona_id, user_id)
+            if not current_persona:
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text="❌ Persona not found or access denied."
+                )
+                return jsonify({"status": "ok"})
+            
+            # Handle system prompt updates
+            current_prompt_id = current_persona.get('system_prompt_id')
+            system_prompt_id = current_prompt_id
+            
+            # Check if prompt content has changed
+            if current_prompt_id:
+                current_prompt = SystemPromptManager.get_prompt_by_id(current_prompt_id, user_id)
+                if current_prompt and current_prompt['content'].strip() != system_prompt.strip():
+                    # Content changed, create a new system prompt
+                    new_prompt = SystemPromptManager.create_prompt(
+                        user_id=user_id,
+                        title=f"{persona_name} Prompt (Updated)",
+                        content=system_prompt,
+                        description=f"Updated prompt for {persona_name} persona"
+                    )
+                    if new_prompt:
+                        system_prompt_id = new_prompt['id']
+                        logger.info(f"Created new prompt for updated persona '{persona_name}'")
+                    else:
+                        logger.warning(f"Failed to create new prompt for persona '{persona_name}', using existing")
+            
+            # Update the persona
+            success = PersonaManager.update_persona(
+                persona_id=persona_id,
+                user_id=user_id,
+                name=persona_name,
+                model=model,
+                temperature=temperature,
+                system_prompt_id=system_prompt_id,
+                description=description
             )
-            return jsonify({"status": "ok"})
+            
+            if success:
+                # Update home tab
+                view_updated = update_home_tab_with_user_data(user_id)
+                safe_publish_home_tab(user_id, view_updated)
+                
+                # Send confirmation
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text=f"✅ Successfully updated persona '{persona_name}'!"
+                )
+                
+                logger.info(f"Updated persona '{persona_name}' (ID: {persona_id}) for user {user_id}")
+            else:
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text="❌ Failed to update persona. Name might already exist."
+                )
+        else:
+            # Create new persona
+            success, message, persona = PersonaCreationService.create_persona_with_prompt_handling(
+                user_id=user_id,
+                persona_name=persona_name,
+                description=description,
+                model=model,
+                temperature=temperature,
+                prompt_content=system_prompt,
+                existing_prompt_id=None,
+                save_new_prompt=True,
+                new_prompt_title=f"{persona_name} Prompt"
+            )
+            
+            if success:
+                # Update home tab
+                view_updated = update_home_tab_with_user_data(user_id)
+                safe_publish_home_tab(user_id, view_updated)
+                
+                # Send confirmation
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text=f"🎉 {message}"
+                )
+                
+                logger.info(f"Created persona '{persona_name}' for user {user_id}")
+            else:
+                slack_client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ {message}"
+                )
         
-        # Load and pre-fill edit modal
-        modal = load_json_view("edit_persona_form")
-        
-        # Pre-fill the form with current persona data
-        modal["private_metadata"] = str(persona_id)  # Store persona ID for submission
-        
-        for block in modal["blocks"]:
-            if block.get("block_id") == "persona_name":
-                block["element"]["initial_value"] = persona["name"]
-            elif block.get("block_id") == "persona_description":
-                block["element"]["initial_value"] = persona.get("description", "")
-            elif block.get("block_id") == "ai_model":
-                # Set initial model selection
-                for option in block["element"]["options"]:
-                    if option["value"] == persona["model"]:
-                        block["element"]["initial_option"] = option
-                        break
-            elif block.get("block_id") == "temperature":
-                # Set initial temperature selection
-                temp_str = str(persona["temperature"])
-                for option in block["element"]["options"]:
-                    if option["value"] == temp_str:
-                        block["element"]["initial_option"] = option
-                        break
-            elif block.get("block_id") == "system_prompt_content":
-                if block["element"].get("action_id") == "prompt_input":
-                    block["element"]["initial_value"] = persona["system_prompt"]
-                elif block["element"].get("action_id") == "prompt_title_input":
-                    block["element"]["initial_value"] = f"{persona['name']} Prompt (Updated)"
-        
-        slack_client.views_open(
-            trigger_id=payload.get("trigger_id"),
-            view=modal
-        )
-        
-        logger.info(f"Opened edit modal for persona {persona_id} ({persona['name']}) for user {user_id}")
         return jsonify({"status": "ok"})
         
     except Exception as e:
-        logger.error(f"Error handling edit persona action: {e}")
-        return jsonify({"error": "Failed to open edit modal"}), 500
+        logger.error(f"Error saving chat persona: {e}")
+        slack_client.chat_postMessage(
+            channel=payload.get("user", {}).get("id"),
+            text=f"❌ Unexpected error: {str(e)}"
+        )
+        return jsonify({"status": "ok"})
+
+
+def handle_save_ab_configuration(payload: Dict[str, Any]) -> Any:
+    """Handle saving A/B testing configuration from inline form."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        
+        # Extract form values from home tab state
+        values = payload.get("view", {}).get("state", {}).get("values", {})
+        
+        # Persona A configuration
+        persona_a_id = values.get("ab_persona_a_selector", {}).get("ab_persona_a_selector", {}).get("selected_option", {}).get("value")
+        persona_a_name = values.get("ab_persona_a_name", {}).get("ab_a_name_input", {}).get("value", "").strip()
+        persona_a_model = values.get("ab_a_model_select", {}).get("selected_option", {}).get("value")
+        persona_a_temp_str = values.get("ab_a_temperature_select", {}).get("selected_option", {}).get("value")
+        
+        # Persona B configuration
+        persona_b_id = values.get("ab_persona_b_selector", {}).get("ab_persona_b_selector", {}).get("selected_option", {}).get("value")
+        persona_b_name = values.get("ab_persona_b_name", {}).get("ab_b_name_input", {}).get("value", "").strip()
+        persona_b_model = values.get("ab_b_model_select", {}).get("selected_option", {}).get("value")
+        persona_b_temp_str = values.get("ab_b_temperature_select", {}).get("selected_option", {}).get("value")
+        
+        # Convert temperatures to float
+        try:
+            persona_a_temp = float(persona_a_temp_str) if persona_a_temp_str else 0.7
+        except (ValueError, TypeError):
+            persona_a_temp = 0.7
+            
+        try:
+            persona_b_temp = float(persona_b_temp_str) if persona_b_temp_str else 0.7
+        except (ValueError, TypeError):
+            persona_b_temp = 0.7
+        
+        # Validate required fields
+        missing_fields = []
+        if not persona_a_name:
+            missing_fields.append("Persona A Name")
+        if not persona_a_model:
+            missing_fields.append("Persona A Model")
+        if not persona_a_temp:
+            missing_fields.append("Persona A Temperature")
+        if not persona_b_name:
+            missing_fields.append("Persona B Name")
+        if not persona_b_model:
+            missing_fields.append("Persona B Model")
+        if not persona_b_temp:
+            missing_fields.append("Persona B Temperature")
+        
+        if missing_fields:
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text=f"❌ Please fill in all required fields: {', '.join(missing_fields)}"
+            )
+            return jsonify({"status": "ok"})
+        
+        # Update or create Persona A
+        if persona_a_id:
+            # Update existing persona A
+            # Get current persona A to handle system prompt updates
+            current_persona_a = PersonaManager.get_persona_by_id(int(persona_a_id), user_id)
+            if current_persona_a:
+                # Handle system prompt updates for Persona A
+                current_prompt_id_a = current_persona_a.get('system_prompt_id')
+                system_prompt_id_a = current_prompt_id_a
+                
+                if current_prompt_id_a:
+                    current_prompt_a = SystemPromptManager.get_prompt_by_id(current_prompt_id_a, user_id)
+                    if current_prompt_a and current_prompt_a['content'].strip() != persona_a_temp:
+                        # Content changed, create a new system prompt
+                        new_prompt_a = SystemPromptManager.create_prompt(
+                            user_id=user_id,
+                            title=f"{persona_a_name} A/B Prompt (Updated)",
+                            content=persona_a_temp,
+                            description=f"Updated A/B testing prompt for {persona_a_name}"
+                        )
+                        if new_prompt_a:
+                            system_prompt_id_a = new_prompt_a['id']
+                
+                success_a = PersonaManager.update_persona(
+                    persona_id=int(persona_a_id),
+                    user_id=user_id,
+                    name=persona_a_name,
+                    model=persona_a_model,
+                    temperature=persona_a_temp,
+                    system_prompt_id=system_prompt_id_a,
+                    description=f"A/B Testing Persona A"
+                )
+            else:
+                success_a = False
+        else:
+            # Create new persona A
+            success_a, message_a, persona_a = PersonaCreationService.create_persona_with_prompt_handling(
+                user_id=user_id,
+                persona_name=persona_a_name,
+                description="A/B Testing Persona A",
+                model=persona_a_model,
+                temperature=persona_a_temp,
+                prompt_content=persona_a_temp,
+                existing_prompt_id=None,
+                save_new_prompt=True,
+                new_prompt_title=f"{persona_a_name} Prompt"
+            )
+            if success_a:
+                persona_a_id = persona_a['id']
+        
+        # Update or create Persona B
+        if persona_b_id:
+            # Update existing persona B
+            # Get current persona B to handle system prompt updates
+            current_persona_b = PersonaManager.get_persona_by_id(int(persona_b_id), user_id)
+            if current_persona_b:
+                # Handle system prompt updates for Persona B
+                current_prompt_id_b = current_persona_b.get('system_prompt_id')
+                system_prompt_id_b = current_prompt_id_b
+                
+                if current_prompt_id_b:
+                    current_prompt_b = SystemPromptManager.get_prompt_by_id(current_prompt_id_b, user_id)
+                    if current_prompt_b and current_prompt_b['content'].strip() != persona_b_temp:
+                        # Content changed, create a new system prompt
+                        new_prompt_b = SystemPromptManager.create_prompt(
+                            user_id=user_id,
+                            title=f"{persona_b_name} A/B Prompt (Updated)",
+                            content=persona_b_temp,
+                            description=f"Updated A/B testing prompt for {persona_b_name}"
+                        )
+                        if new_prompt_b:
+                            system_prompt_id_b = new_prompt_b['id']
+                
+                success_b = PersonaManager.update_persona(
+                    persona_id=int(persona_b_id),
+                    user_id=user_id,
+                    name=persona_b_name,
+                    model=persona_b_model,
+                    temperature=persona_b_temp,
+                    system_prompt_id=system_prompt_id_b,
+                    description=f"A/B Testing Persona B"
+                )
+            else:
+                success_b = False
+        else:
+            # Create new persona B
+            success_b, message_b, persona_b = PersonaCreationService.create_persona_with_prompt_handling(
+                user_id=user_id,
+                persona_name=persona_b_name,
+                description="A/B Testing Persona B",
+                model=persona_b_model,
+                temperature=persona_b_temp,
+                prompt_content=persona_b_temp,
+                existing_prompt_id=None,
+                save_new_prompt=True,
+                new_prompt_title=f"{persona_b_name} Prompt"
+            )
+            if success_b:
+                persona_b_id = persona_b['id']
+        
+        # Update A/B testing preferences
+        if persona_a_id:
+            UserPreferencesService.update_ab_persona(user_id, "response_a", int(persona_a_id))
+        if persona_b_id:
+            UserPreferencesService.update_ab_persona(user_id, "response_b", int(persona_b_id))
+        
+        # Update home tab to show current settings
+        view = update_home_tab_with_user_data(user_id)
+        safe_publish_home_tab(user_id, view)
+        
+        # Send confirmation message
+        slack_client.chat_postMessage(
+            channel=user_id,
+            text="✅ A/B testing configuration saved! Your personas are ready for side-by-side comparison."
+        )
+        
+        logger.info(f"Saved A/B testing configuration for user {user_id}")
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error saving A/B testing configuration: {e}")
+        slack_client.chat_postMessage(
+            channel=payload.get("user", {}).get("id"),
+            text=f"❌ Unexpected error: {str(e)}"
+        )
+        return jsonify({"status": "ok"})
 
 
 def handle_modal_submission(payload: Dict[str, Any]) -> Any:
@@ -848,9 +906,10 @@ def handle_modal_submission(payload: Dict[str, Any]) -> Any:
         
         if callback_id == "create_persona":
             return handle_create_persona_submission(payload, user_id)
-        
-        elif callback_id == "edit_persona":
+        elif callback_id == "edit_persona_modal":
             return handle_edit_persona_submission(payload, user_id)
+        elif callback_id == "ab_config_modal":
+            return handle_ab_config_submission(payload, user_id)
         
         return jsonify({"status": "ok"})
         
@@ -867,8 +926,8 @@ def handle_create_persona_submission(payload: Dict[str, Any], user_id: str) -> A
         # Extract form values
         persona_name = values.get("persona_name", {}).get("name_input", {}).get("value", "").strip()
         description = values.get("persona_description", {}).get("description_input", {}).get("value", "").strip()
-        model = values.get("ai_model", {}).get("model_select", {}).get("selected_option", {}).get("value")
-        temperature = float(values.get("temperature", {}).get("temperature_select", {}).get("selected_option", {}).get("value", "0.7"))
+        model = values.get("model_selection", {}).get("model_select", {}).get("selected_option", {}).get("value")
+        temperature = float(values.get("temperature_section", {}).get("temperature_select", {}).get("selected_option", {}).get("value", "0.7"))
         
         # System prompt handling
         prompt_selection = values.get("system_prompt_selector", {}).get("prompt_select", {}).get("selected_option", {})
@@ -885,7 +944,7 @@ def handle_create_persona_submission(payload: Dict[str, Any], user_id: str) -> A
                 "response_action": "errors",
                 "errors": {
                     "persona_name": "Persona name is required" if not persona_name else "",
-                    "ai_model": "Model selection is required" if not model else "",
+                    "model_selection": "Model selection is required" if not model else "",
                     "system_prompt_content": "System prompt content is required" if not prompt_content else ""
                 }
             })
@@ -946,122 +1005,68 @@ def handle_create_persona_submission(payload: Dict[str, Any], user_id: str) -> A
 
 
 def handle_edit_persona_submission(payload: Dict[str, Any], user_id: str) -> Any:
-    """Handle persona edit form submission."""
+    """Handle edit persona form submission."""
     try:
         view = payload.get("view", {})
-        persona_id = int(view.get("private_metadata", ""))
+        private_metadata = json.loads(view.get("private_metadata", "{}"))
+        persona_id = private_metadata.get("persona_id")
+        
+        if not persona_id:
+            return jsonify({
+                "response_action": "errors",
+                "errors": {"general": "Invalid persona data"}
+            })
+        
         values = view.get("state", {}).get("values", {})
         
         # Extract form values
         persona_name = values.get("persona_name", {}).get("name_input", {}).get("value", "").strip()
         description = values.get("persona_description", {}).get("description_input", {}).get("value", "").strip()
-        model = values.get("ai_model", {}).get("model_select", {}).get("selected_option", {}).get("value")
-        temperature = float(values.get("temperature", {}).get("temperature_select", {}).get("selected_option", {}).get("value", "0.7"))
+        model = values.get("model_selection", {}).get("model_select", {}).get("selected_option", {}).get("value")
+        temperature_str = values.get("temperature_section", {}).get("temperature_select", {}).get("selected_option", {}).get("value")
+        system_prompt = values.get("system_prompt", {}).get("prompt_input", {}).get("value", "").strip()
         
-        # System prompt handling
-        prompt_selection = values.get("system_prompt_selector", {}).get("prompt_select", {}).get("selected_option", {})
-        prompt_content = values.get("system_prompt_content", {}).get("prompt_input", {}).get("value", "").strip()
-        
-        # Prompt saving options
-        save_prompt_checked = values.get("save_prompt_options", {}).get("save_prompt_checkbox", {}).get("selected_options", [])
-        save_new_prompt = len(save_prompt_checked) > 0
-        new_prompt_title = values.get("new_prompt_title", {}).get("prompt_title_input", {}).get("value", "").strip()
+        # Convert temperature to float
+        try:
+            temperature = float(temperature_str) if temperature_str else 0.7
+        except (ValueError, TypeError):
+            temperature = 0.7
         
         # Validate required fields
-        if not all([persona_name, model, prompt_content]):
+        if not all([persona_name, model, system_prompt]):
             return jsonify({
                 "response_action": "errors",
                 "errors": {
                     "persona_name": "Persona name is required" if not persona_name else "",
-                    "ai_model": "Model selection is required" if not model else "",
-                    "system_prompt_content": "System prompt content is required" if not prompt_content else ""
+                    "model_selection": "Model selection is required" if not model else "",
+                    "system_prompt": "System prompt is required" if not system_prompt else ""
                 }
             })
         
-        # Get current persona to check for changes
+        # Get current persona to handle system prompt updates
         current_persona = PersonaManager.get_persona_by_id(persona_id, user_id)
         if not current_persona:
             return jsonify({
                 "response_action": "errors",
-                "errors": {
-                    "general": "Persona not found or access denied"
-                }
+                "errors": {"general": "Persona not found or access denied"}
             })
         
-        # Handle prompt changes
-        system_prompt_id = current_persona['system_prompt_id']
+        # Handle system prompt updates
+        current_prompt_id = current_persona.get('system_prompt_id')
+        system_prompt_id = current_prompt_id
         
-        # Check if prompt content changed
-        if prompt_content.strip() != current_persona['system_prompt'].strip():
-            # Prompt was modified
-            if save_new_prompt:
-                # Create new prompt
-                if not new_prompt_title:
-                    new_prompt_title = f"{persona_name} Prompt (Updated)"
-                
+        if current_prompt_id:
+            current_prompt = SystemPromptManager.get_prompt_by_id(current_prompt_id, user_id)
+            if current_prompt and current_prompt['content'].strip() != system_prompt.strip():
+                # Content changed, create a new system prompt
                 new_prompt = SystemPromptManager.create_prompt(
                     user_id=user_id,
-                    title=new_prompt_title,
-                    content=prompt_content,
+                    title=f"{persona_name} Prompt (Updated)",
+                    content=system_prompt,
                     description=f"Updated prompt for {persona_name} persona"
                 )
-                
-                if not new_prompt:
-                    return jsonify({
-                        "response_action": "errors",
-                        "errors": {
-                            "new_prompt_title": "Failed to create new prompt. Title might already exist."
-                        }
-                    })
-                
-                system_prompt_id = new_prompt['id']
-                logger.info(f"Created new prompt '{new_prompt_title}' for persona edit")
-            else:
-                # Update existing prompt if it's not a default prompt
-                existing_prompt = SystemPromptManager.get_prompt_by_id(system_prompt_id, user_id)
-                if existing_prompt and not existing_prompt.get('is_default', False):
-                    # Update the existing prompt
-                    success = SystemPromptManager.update_prompt(
-                        prompt_id=system_prompt_id,
-                        user_id=user_id,
-                        content=prompt_content
-                    )
-                    if not success:
-                        # If update fails, create new prompt
-                        new_prompt_title = f"{persona_name} Prompt (Updated)"
-                        new_prompt = SystemPromptManager.create_prompt(
-                            user_id=user_id,
-                            title=new_prompt_title,
-                            content=prompt_content,
-                            description=f"Updated prompt for {persona_name} persona"
-                        )
-                        if new_prompt:
-                            system_prompt_id = new_prompt['id']
-                        else:
-                            return jsonify({
-                                "response_action": "errors",
-                                "errors": {
-                                    "system_prompt_content": "Failed to update prompt"
-                                }
-                            })
-                else:
-                    # It's a default prompt, must create new one
-                    new_prompt_title = f"{persona_name} Prompt (Custom)"
-                    new_prompt = SystemPromptManager.create_prompt(
-                        user_id=user_id,
-                        title=new_prompt_title,
-                        content=prompt_content,
-                        description=f"Custom prompt for {persona_name} persona"
-                    )
-                    if new_prompt:
-                        system_prompt_id = new_prompt['id']
-                    else:
-                        return jsonify({
-                            "response_action": "errors",
-                            "errors": {
-                                "system_prompt_content": "Failed to create custom prompt"
-                            }
-                        })
+                if new_prompt:
+                    system_prompt_id = new_prompt['id']
         
         # Update the persona
         success = PersonaManager.update_persona(
@@ -1075,34 +1080,462 @@ def handle_edit_persona_submission(payload: Dict[str, Any], user_id: str) -> Any
         )
         
         if success:
-            # Update home tab
-            view_updated = update_home_tab_with_user_data(user_id)
-            safe_publish_home_tab(user_id, view_updated)
+            # Update home tab using modal-based view
+            view = update_modal_based_home_tab(user_id)
+            safe_publish_home_tab(user_id, view)
             
             # Send confirmation
             slack_client.chat_postMessage(
                 channel=user_id,
-                text=f"✅ Successfully updated persona '{persona_name}'!"
+                text=f"✅ Successfully updated persona '{persona_name}'! Changes are now active."
             )
             
             logger.info(f"Updated persona '{persona_name}' (ID: {persona_id}) for user {user_id}")
             return jsonify({"response_action": "clear"})
         else:
             return jsonify({
-                "response_action": "errors", 
-                "errors": {
-                    "persona_name": "Failed to update persona. Name might already exist.",
-                }
+                "response_action": "errors",
+                "errors": {"general": "Failed to update persona. Name might already exist."}
             })
         
     except Exception as e:
-        logger.error(f"Error editing persona: {e}")
+        logger.error(f"Error updating persona: {e}")
         return jsonify({
             "response_action": "errors",
-            "errors": {
-                "general": f"Unexpected error: {str(e)}"
-            }
+            "errors": {"general": f"Unexpected error: {str(e)}"}
         })
+
+
+def handle_ab_config_submission(payload: Dict[str, Any], user_id: str) -> Any:
+    """Handle A/B configuration form submission."""
+    try:
+        values = payload.get("view", {}).get("state", {}).get("values", {})
+        
+        # Persona A configuration
+        persona_a_id = values.get("ab_persona_a_selector", {}).get("ab_persona_a_selector", {}).get("selected_option", {}).get("value")
+        persona_a_name = values.get("ab_persona_a_name", {}).get("ab_a_name_input", {}).get("value", "").strip()
+        persona_a_model = values.get("ab_a_model_section", {}).get("ab_a_model_select", {}).get("selected_option", {}).get("value")
+        persona_a_temp_str = values.get("ab_a_temperature_section", {}).get("ab_a_temperature_select", {}).get("selected_option", {}).get("value")
+        
+        # Persona B configuration
+        persona_b_id = values.get("ab_persona_b_selector", {}).get("ab_persona_b_selector", {}).get("selected_option", {}).get("value")
+        persona_b_name = values.get("ab_persona_b_name", {}).get("ab_b_name_input", {}).get("value", "").strip()
+        persona_b_model = values.get("ab_b_model_section", {}).get("ab_b_model_select", {}).get("selected_option", {}).get("value")
+        persona_b_temp_str = values.get("ab_b_temperature_section", {}).get("ab_b_temperature_select", {}).get("selected_option", {}).get("value")
+        
+        # Convert temperatures to float
+        try:
+            persona_a_temp = float(persona_a_temp_str) if persona_a_temp_str else 0.7
+        except (ValueError, TypeError):
+            persona_a_temp = 0.7
+            
+        try:
+            persona_b_temp = float(persona_b_temp_str) if persona_b_temp_str else 0.7
+        except (ValueError, TypeError):
+            persona_b_temp = 0.7
+        
+        # Validate required fields
+        if not all([persona_a_id, persona_b_id]):
+            return jsonify({
+                "response_action": "errors",
+                "errors": {
+                    "ab_persona_a_selector": "Persona A selection is required" if not persona_a_id else "",
+                    "ab_persona_b_selector": "Persona B selection is required" if not persona_b_id else ""
+                }
+            })
+        
+        # Update A/B testing preferences
+        UserPreferencesService.update_ab_persona(user_id, "response_a", int(persona_a_id))
+        UserPreferencesService.update_ab_persona(user_id, "response_b", int(persona_b_id))
+        
+        # Update home tab using modal-based view
+        view = update_modal_based_home_tab(user_id)
+        safe_publish_home_tab(user_id, view)
+        
+        # Send confirmation message
+        slack_client.chat_postMessage(
+            channel=user_id,
+            text="✅ A/B testing configuration saved! Your personas are ready for side-by-side comparison."
+        )
+        
+        logger.info(f"Saved A/B testing configuration for user {user_id}")
+        return jsonify({"response_action": "clear"})
+        
+    except Exception as e:
+        logger.error(f"Error saving A/B testing configuration: {e}")
+        slack_client.chat_postMessage(
+            channel=payload.get("user", {}).get("id"),
+            text=f"❌ Unexpected error: {str(e)}"
+        )
+        return jsonify({"status": "ok"})
+
+
+def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
+    """Load modal-based home tab and populate with user's current settings."""
+    try:
+        view = load_json_view("app_home_modal_based")
+        
+        # Get user preferences and personas
+        user_prefs = UserPreferencesService.get_user_preferences(user_id)
+        personas = PersonaManager.get_user_personas(user_id)
+        
+        # Update mode selector - default to chat mode
+        current_mode = "chat_mode" if user_prefs.get('chat_mode_enabled', True) else "ab_testing"
+        for block in view['blocks']:
+            if block.get('type') == 'section' and block.get('accessory', {}).get('action_id') == 'mode_selector':
+                for option in block['accessory']['options']:
+                    if option['value'] == current_mode:
+                        block['accessory']['initial_option'] = option
+                        break
+        
+        # Update persona dropdowns with actual user personas
+        persona_options = []
+        for persona in personas:
+            name = persona['name']
+            
+            persona_options.append({
+                "text": {"type": "plain_text", "text": name},
+                "value": str(persona['id'])
+            })
+        
+        # Get active persona for chat mode
+        active_persona = None
+        if user_prefs.get('active_persona_id'):
+            active_persona = PersonaManager.get_persona_by_id(user_prefs['active_persona_id'], user_id)
+        
+        if not active_persona and personas:
+            # Find Assistant persona first
+            assistant_persona = next((p for p in personas if p['name'].lower() == 'assistant'), None)
+            if assistant_persona:
+                active_persona = assistant_persona
+                PersonaManager.set_active_persona(user_id, assistant_persona['id'])
+            else:
+                active_persona = personas[0]
+        
+        # Get A/B testing personas
+        persona_a = user_prefs.get('response_a', {})
+        persona_b = user_prefs.get('response_b', {})
+        
+        # Update persona selectors and display current info
+        for block in view['blocks']:
+            accessory = block.get('accessory', {})
+            action_id = accessory.get('action_id')
+            
+            # Update persona selector dropdowns
+            if action_id == 'chat_persona_selector':
+                if persona_options:
+                    accessory['options'] = persona_options
+                    if active_persona:
+                        persona_id = str(active_persona['id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+            
+            # Update display text with current persona info
+            if block.get('type') == 'section' and 'text' in block:
+                text = block['text'].get('text', '')
+                if active_persona:
+                    # Replace individual field placeholders
+                    if '{persona_name}' in text:
+                        text = text.replace('{persona_name}', active_persona['name'])
+                        block['text']['text'] = text
+                    elif '{persona_description}' in text:
+                        description = active_persona.get('description', 'No description provided')
+                        text = text.replace('{persona_description}', description)
+                        block['text']['text'] = text
+                    elif '{persona_model}' in text:
+                        model_display = {
+                            'sonnet': 'Claude 3.5 Sonnet',
+                            'opus': 'Claude 3 Opus'
+                        }.get(active_persona['model'], active_persona['model'])
+                        text = text.replace('{persona_model}', model_display)
+                        block['text']['text'] = text
+                    elif '{persona_temperature}' in text:
+                        temp_value = str(active_persona['temperature'])
+                        text = text.replace('{persona_temperature}', temp_value)
+                        block['text']['text'] = text
+                    elif '{persona_system_prompt}' in text:
+                        # Show the full system prompt without truncation
+                        full_prompt = active_persona.get('system_prompt', 'No system prompt defined')
+                        text = text.replace('{persona_system_prompt}', full_prompt)
+                        block['text']['text'] = text
+                
+                # Handle A/B testing placeholders
+                if '{persona_a_name}' in text or '{persona_b_name}' in text:
+                    persona_a_name = "Not configured"
+                    persona_b_name = "Not configured"
+                    if persona_a.get('persona_id'):
+                        persona_a_data = PersonaManager.get_persona_by_id(persona_a['persona_id'], user_id)
+                        if persona_a_data:
+                            persona_a_name = persona_a_data['name']
+                    if persona_b.get('persona_id'):
+                        persona_b_data = PersonaManager.get_persona_by_id(persona_b['persona_id'], user_id)
+                        if persona_b_data:
+                            persona_b_name = persona_b_data['name']
+                    
+                    text = text.replace('{persona_a_name}', persona_a_name)
+                    text = text.replace('{persona_b_name}', persona_b_name)
+                    block['text']['text'] = text
+        
+        return view
+        
+    except Exception as e:
+        logger.error(f"Error building modal-based home tab for user {user_id}: {e}")
+        # Fallback to basic view
+        return load_json_view("app_home_modal_based")
+
+
+def handle_edit_chat_persona_modal(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle opening the edit persona modal with pre-populated data."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        trigger_id = payload.get("trigger_id")
+        
+        if not user_id or not trigger_id:
+            return jsonify({"error": "Missing data"}), 400
+        
+        # Get the current active persona
+        active_persona = PersonaManager.get_active_persona(user_id)
+        
+        if not active_persona:
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text="❌ No active persona found. Please select a persona first."
+            )
+            return jsonify({"status": "ok"})
+        
+        # Load the modal template
+        modal = load_json_view("edit_persona_modal")
+        
+        # Pre-populate the modal with current persona data
+        for block in modal.get("blocks", []):
+            block_id = block.get("block_id")
+            element = block.get("element", {})
+            
+            if block_id == "persona_name" and element.get("action_id") == "name_input":
+                element["initial_value"] = active_persona["name"]
+            elif block_id == "persona_description" and element.get("action_id") == "description_input":
+                element["initial_value"] = active_persona.get("description", "")
+            elif block_id == "system_prompt" and element.get("action_id") == "prompt_input":
+                element["initial_value"] = active_persona.get("system_prompt", "")
+            
+            # Handle accessory elements (radio buttons, selects)
+            accessory = block.get("accessory", {})
+            if block_id == "model_selection" and accessory.get("action_id") == "model_select":
+                # Set initial model selection
+                for option in accessory.get("options", []):
+                    if option["value"] == active_persona["model"]:
+                        accessory["initial_option"] = option
+                        break
+            elif block_id == "temperature_section" and accessory.get("action_id") == "temperature_select":
+                # Set initial temperature selection
+                temp_value = str(active_persona["temperature"])
+                for option in accessory.get("options", []):
+                    if option["value"] == temp_value:
+                        accessory["initial_option"] = option
+                        break
+        
+        # Add persona info to modal title and metadata
+        modal["private_metadata"] = json.dumps({
+            "persona_id": active_persona["id"],
+            "action": "edit_persona"
+        })
+        
+        # Update modal text with persona name
+        for block in modal.get("blocks", []):
+            if block.get("type") == "section" and "text" in block:
+                text = block["text"].get("text", "")
+                if "{persona_name}" in text:
+                    block["text"]["text"] = text.replace("{persona_name}", active_persona["name"])
+        
+        # Open the modal
+        slack_client.views_open(
+            trigger_id=trigger_id,
+            view=modal
+        )
+        
+        logger.info(f"Opened edit persona modal for user {user_id}, persona: {active_persona['name']}")
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error opening edit persona modal: {e}")
+        slack_client.chat_postMessage(
+            channel=user_id,
+            text="❌ Failed to open edit modal. Please try again."
+        )
+        return jsonify({"error": "Failed to open modal"}), 500
+
+
+def handle_configure_ab_testing_modal(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle opening the A/B testing configuration modal."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        trigger_id = payload.get("trigger_id")
+        
+        if not user_id or not trigger_id:
+            return jsonify({"error": "Missing data"}), 400
+        
+        # Get current A/B preferences
+        preferences = UserPreferencesService.get_user_preferences(user_id)
+        persona_a = preferences.get("persona_a", {})
+        persona_b = preferences.get("persona_b", {})
+        
+        # Get persona data for pre-population
+        persona_a_data = None
+        persona_b_data = None
+        
+        if persona_a.get("persona_id"):
+            persona_a_data = PersonaManager.get_persona_by_id(persona_a["persona_id"], user_id)
+        if persona_b.get("persona_id"):
+            persona_b_data = PersonaManager.get_persona_by_id(persona_b["persona_id"], user_id)
+        
+        # Load the modal template
+        modal = load_json_view("ab_config_modal")
+        
+        # Get all available personas for the selectors
+        all_personas = PersonaManager.get_user_personas(user_id)
+        persona_options = []
+        for persona in all_personas:
+            name = persona['name']
+            
+            persona_options.append({
+                "text": {"type": "plain_text", "text": name},
+                "value": str(persona['id'])
+            })
+        
+        # Pre-populate the modal
+        for block in modal.get("blocks", []):
+            accessory = block.get("accessory", {})
+            element = block.get("element", {})
+            block_id = block.get("block_id")
+            
+            # Update persona selector options
+            if accessory.get("action_id") in ["ab_persona_a_selector", "ab_persona_b_selector"]:
+                accessory["options"] = persona_options
+                
+                # Set initial selection
+                if accessory.get("action_id") == "ab_persona_a_selector" and persona_a_data:
+                    for option in persona_options:
+                        if option["value"] == str(persona_a_data["id"]):
+                            accessory["initial_option"] = option
+                            break
+                elif accessory.get("action_id") == "ab_persona_b_selector" and persona_b_data:
+                    for option in persona_options:
+                        if option["value"] == str(persona_b_data["id"]):
+                            accessory["initial_option"] = option
+                            break
+            
+            # Pre-populate form fields
+            if persona_a_data:
+                if block_id == "ab_persona_a_name" and element.get("action_id") == "ab_a_name_input":
+                    element["initial_value"] = persona_a_data["name"]
+                elif accessory.get("action_id") == "ab_a_model_select":
+                    for option in accessory.get("options", []):
+                        if option["value"] == persona_a_data["model"]:
+                            accessory["initial_option"] = option
+                            break
+                elif accessory.get("action_id") == "ab_a_temperature_select":
+                    temp_value = str(persona_a_data["temperature"])
+                    for option in accessory.get("options", []):
+                        if option["value"] == temp_value:
+                            accessory["initial_option"] = option
+                            break
+            
+            if persona_b_data:
+                if block_id == "ab_persona_b_name" and element.get("action_id") == "ab_b_name_input":
+                    element["initial_value"] = persona_b_data["name"]
+                elif accessory.get("action_id") == "ab_b_model_select":
+                    for option in accessory.get("options", []):
+                        if option["value"] == persona_b_data["model"]:
+                            accessory["initial_option"] = option
+                            break
+                elif accessory.get("action_id") == "ab_b_temperature_select":
+                    temp_value = str(persona_b_data["temperature"])
+                    for option in accessory.get("options", []):
+                        if option["value"] == temp_value:
+                            accessory["initial_option"] = option
+                            break
+        
+        # Open the modal
+        slack_client.views_open(
+            trigger_id=trigger_id,
+            view=modal
+        )
+        
+        logger.info(f"Opened A/B testing configuration modal for user {user_id}")
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error opening A/B testing modal: {e}")
+        slack_client.chat_postMessage(
+            channel=user_id,
+            text="❌ Failed to open A/B testing configuration modal. Please try again."
+        )
+        return jsonify({"error": "Failed to open modal"}), 500
+
+
+def handle_delete_persona(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """Handle persona deletion with confirmation."""
+    try:
+        user_id = payload.get("user", {}).get("id")
+        
+        if not user_id:
+            return jsonify({"error": "Missing user ID"}), 400
+        
+        # Get the current active persona
+        active_persona = PersonaManager.get_active_persona(user_id)
+        
+        if not active_persona:
+            slack_client.chat_postMessage(
+                channel=user_id,
+                text="❌ No active persona found to delete."
+            )
+            return jsonify({"status": "ok"})
+        
+        # Send confirmation message with buttons
+        confirmation_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"⚠️ *Are you sure you want to delete the persona '{active_persona['name']}'?*\n\nThis action cannot be undone."
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🗑️ Yes, Delete"},
+                        "action_id": "confirm_delete_persona",
+                        "style": "danger",
+                        "value": str(active_persona["id"])
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Cancel"},
+                        "action_id": "cancel_delete_persona"
+                    }
+                ]
+            }
+        ]
+        
+        slack_client.chat_postMessage(
+            channel=user_id,
+            blocks=confirmation_blocks,
+            text=f"Confirm deletion of persona '{active_persona['name']}'?"
+        )
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"Error handling persona deletion: {e}")
+        slack_client.chat_postMessage(
+            channel=user_id,
+            text="❌ Failed to process delete request. Please try again."
+        )
+        return jsonify({"error": "Failed to process delete request"}), 500
 
 
 def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
@@ -1158,6 +1591,11 @@ def handle_ab_vote(payload: Dict[str, Any], action: Dict[str, Any]) -> Any:
     except Exception as e:
         logger.error(f"Error handling A/B vote: {e}")
         return jsonify({"error": "Failed to process vote"}), 500
+
+
+# ==========================================
+# ERROR TRACKING AND MONITORING
+# ==========================================
 
 # Health check endpoint
 @app.route("/health", methods=["GET"])
@@ -1390,12 +1828,12 @@ from pymysql.err import OperationalError as PyMySQLOperationalError
 def database_error(e):
     """Handle database connection and operational errors."""
     error_id = f"DB-ERR-{int(os.urandom(4).hex(), 16)}"
-    logger.error(f"Database Error [{error_id}]: {e}")
+    logger.error(f"DATABASE CONNECTION FAILURE [{error_id}]: {e}")
     
     # Track database error
-    track_error("database_error", str(e), error_id)
+    track_error("database_connection_failure", str(e), error_id)
     
-    # For Slack API endpoints, return 200 to prevent retries
+    # For Slack API endpoints, return 200 but with clear error messaging
     if request.path.startswith('/event') or request.path.startswith('/interactive'):
         # Try to send user-friendly message to Slack if possible
         try:
@@ -1407,17 +1845,18 @@ def database_error(e):
             if user_id:
                 slack_client.chat_postMessage(
                     channel=user_id,
-                    text="🔧 I'm experiencing database connectivity issues. Please try again in a moment."
+                    text=f"🚨 **DATABASE CONNECTION FAILURE** [{error_id}]\n\nThe database is currently unreachable. This is causing the persona system to malfunction.\n\n**Error:** {str(e)[:200]}\n\nPlease contact the administrator."
                 )
         except Exception as slack_error:
             logger.error(f"Failed to send database error message to Slack: {slack_error}")
         
-        return jsonify({"status": "ok", "message": "Database temporarily unavailable"}), 200
+        return jsonify({"status": "ok", "message": f"Database connection failure: {error_id}"}), 200
     
     return jsonify({
-        "error": "Database unavailable",
+        "error": "Database connection failure",
         "error_id": error_id,
-        "message": "Database is temporarily unavailable. Please try again later."
+        "message": f"Database is unreachable. Error ID: {error_id}",
+        "details": str(e)[:200]
     }), 503
 
 # Generic exception handler for unhandled exceptions
