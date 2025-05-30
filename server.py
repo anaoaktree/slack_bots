@@ -11,11 +11,9 @@ from flask import Flask, jsonify, request, render_template, flash, redirect, url
 from flask_migrate import Migrate
 
 from config import config
-from models import db, ABVote, UserPreferences, SystemPrompt, AIPersona, ABTest
+from models import db, ABVote, UserPreferences, SystemPrompt, AIPersona, ABTest, MessageProcessingJob
 from services import (
     get_conversation_history,
-    get_standard_claude_response,
-    ABTestingService,
     UserPreferencesService,
     PersonaManager,
     ChatService,
@@ -49,6 +47,49 @@ migrate = Migrate(app, db)
 # Initialize Slack client
 slack_client = WebClient(token=os.environ["CHACHIBT_APP_BOT_AUTH_TOKEN"])
 
+
+def handle_message(message: Dict[str, Any], client: WebClient) -> None:
+    """Add message to database job queue for background processing (PythonAnywhere pattern)."""
+    try:
+        event_type = message.get("type", "unknown")
+        user_id = message.get("user")
+        channel_id = message.get("channel")
+        message_ts = message.get("ts")
+        thread_ts = message.get("thread_ts")
+        message_text = message.get("text", "")
+        
+        if not all([user_id, channel_id, message_ts]):
+            logger.error(f"Missing required fields in message: user={user_id}, channel={channel_id}, ts={message_ts}")
+            return
+        
+        # Check if the message is from the bot itself BEFORE scheduling the job
+        try:
+            bot_user_id = client.auth_test()["user_id"]
+            if user_id == bot_user_id:
+                logger.info(f"HANDLE_MESSAGE: Ignoring bot's own message {channel_id}:{message_ts}")
+                return
+        except Exception as e:
+            logger.error(f"Failed to get bot user ID: {e}")
+            # Continue processing if we can't determine bot user ID
+        
+        # Serialize the full event payload for the background worker
+        event_payload = json.dumps(message)
+        
+        # Add job to database queue
+        job = MessageProcessingJob.add_job(
+            event_type=event_type,
+            user_id=user_id,
+            channel_id=channel_id,
+            message_ts=message_ts,
+            thread_ts=thread_ts,
+            message_text=message_text,
+            event_payload=event_payload
+        )
+
+    except Exception as e:
+        logger.error(f"JOB_ADD_ERROR: Failed to add job for message: {e}")
+
+
 # Create tables if they don't exist (for local development)
 # Skip during Flask CLI commands to avoid encoding issues
 if not os.environ.get('FLASK_CLI_RUNNING'):
@@ -59,9 +100,18 @@ if not os.environ.get('FLASK_CLI_RUNNING'):
             db.session.execute(text('SELECT 1'))
             db.session.commit()
             db.create_all()
-            logger.info("Database tables created successfully")
+            logger.info("✅ Database tables created successfully")
+            
+            # Clean up old completed jobs on startup
+            try:
+                cleaned_count = MessageProcessingJob.cleanup_old_jobs(days=7)
+                if cleaned_count > 0:
+                    logger.info(f"🧹 Cleaned up {cleaned_count} old completed message processing jobs")
+            except Exception as cleanup_error:
+                logger.error(f"⚠️ Job cleanup failed: {cleanup_error}")
+                
         except Exception as e:
-            logger.error(f"Database connection failed: {e}")
+            logger.error(f"❌ Database connection failed: {e}")
             # Don't fail startup - let the app run and retry later
 
 # Flask CLI Commands
@@ -157,73 +207,102 @@ def slack_event_handler():
     return jsonify({"status": "ok"})
 
 
-def handle_message(message: Dict[str, Any], client: WebClient) -> None:
-    """Handle incoming messages using ChatService for mode-aware responses."""
-    # Initialize processed messages dict if it doesn't exist - TODO move this to a db
-    if not hasattr(handle_message, 'processed_messages'):
-        handle_message.processed_messages = {}
-
-    bot_user_id = client.auth_test()["user_id"]
-    user = message.get("user")
-    
-    # Ignore if the message is from the bot itself
-    if user == bot_user_id:
-        logger.info("Skipping bot's own message")
-        return
-
-    channel_type = message.get("channel_type") 
-    channel = message.get("channel")
-    thread_ts = message.get("thread_ts", message.get("ts"))
-    message_ts = message.get("ts")
-
-    # Add deduplication check using message timestamp
-    thread_messages = handle_message.processed_messages.get(thread_ts, set())
-    if message_ts in thread_messages:
-        logger.info(f"Skipping duplicate message {message_ts} in thread {thread_ts}")
-        return
-    # Store message as processed
-    if thread_ts not in handle_message.processed_messages:
-        handle_message.processed_messages[thread_ts] = set()
-    handle_message.processed_messages[thread_ts].add(message_ts)
-
-    logger.info(f"Received message from user {user} in channel {channel}")
-
-    # Check if bot should respond
-    tagged_in_parent = False
-    if thread_ts:
-        parent_message = client.conversations_replies(
-            channel=channel, ts=thread_ts, limit=1
-        )["messages"][0]
-        tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
-
-    should_respond = (
-        channel_type == "im"
-        or f"<@{bot_user_id}>" in message.get("text", "")
-        or tagged_in_parent
-    )
-
-    if not should_respond:
-        logger.info("Skipping message")
-        return
-
-    conversation = get_conversation_history(client, channel, thread_ts, bot_user_id)
-    logger.info(f"Got conversation history with {len(conversation)} messages")
-
+@app.route("/process-job", methods=["POST"])
+def process_job():
+    """Process a message job (called by Always-On Task)."""
     try:
+        data = request.get_json()
+        job_id = data.get("job_id")
+        event_payload = data.get("event_payload")
+        
+        if not job_id or not event_payload:
+            return jsonify({
+                "status": "error",
+                "message": "Missing job_id or event_payload"
+            }), 400
+        
+        # Parse the event data
+        event_data = json.loads(event_payload) if isinstance(event_payload, str) else event_payload
+        
+        bot_user_id = slack_client.auth_test()["user_id"]
+        user = event_data.get("user")
+        
+        # Note: Bot message check is now handled before scheduling in handle_message()
+        
+        channel_type = event_data.get("channel_type")
+        channel = event_data.get("channel")
+        thread_ts = event_data.get("thread_ts", event_data.get("ts"))
+        message_ts = event_data.get("ts")
+        event_type = event_data.get("type", "unknown")
+        
+        logger.info(f"PROCESS_JOB: Processing {event_type} event for message {message_ts} in channel {channel}")
+        
+        # Check if bot should respond
+        tagged_in_parent = False
+        if thread_ts:
+            try:
+                parent_message = slack_client.conversations_replies(
+                    channel=channel, ts=thread_ts, limit=1
+                )["messages"][0]
+                tagged_in_parent = f"<@{bot_user_id}>" in parent_message.get("text", "")
+            except Exception as e:
+                logger.warning(f"Could not check parent message for job {job_id}: {e}")
+        
+        should_respond = (
+            channel_type == "im"
+            or f"<@{bot_user_id}>" in event_data.get("text", "")
+            or tagged_in_parent
+        )
+        
+        if not should_respond:
+            logger.info(f"PROCESS_JOB: Skipping job {job_id} - bot not mentioned")
+            return jsonify({
+                "status": "success",
+                "action": "skipped",
+                "reason": "not_mentioned"
+            })
+        
+        # Get conversation history
+        conversation = get_conversation_history(slack_client, channel, thread_ts, bot_user_id)
+        logger.info(f"PROCESS_JOB: Got conversation history with {len(conversation)} messages for job {job_id}")
+        
+        # Check if conversation already ends with assistant response (indicates late processing)
+        if conversation and conversation[-1].get("role") == "assistant":
+            logger.warning(f"PROCESS_JOB: Job {job_id} - conversation already ends with assistant response")
+            logger.warning(f"PROCESS_JOB: This indicates the job was processed after bot already responded")
+            logger.info(f"PROCESS_JOB: Skipping Claude API call for job {job_id} - no response needed")
+            return jsonify({
+                "status": "success",
+                "action": "skipped",
+                "reason": "conversation_already_complete"
+            })
+        
         # Use ChatService to handle the message based on user's mode
-        result = ChatService.handle_user_message(
+        logger.info(f"PROCESS_JOB: Starting ChatService request for job {job_id}")
+        result: Dict | None = ChatService.handle_user_message(
             user_id=user,
             channel_id=channel,
             thread_ts=thread_ts,
-            message_text=message.get("text", ""),
+            message_text=event_data.get("text", ""),
             conversation=conversation
         )
+        
+        if not result:
+            logger.error(f"PROCESS_JOB: No result from ChatService for job {job_id}")
+            return jsonify({
+                "status": "success",
+                "action": "skipped",
+                "reason": "no_response_from_chat_service"
+            })
         
         mode = result.get("mode")
         responses = result.get("responses", [])
         metadata = result.get("metadata", {})
         
-        logger.info(f"ChatService returned mode: {mode}, {len(responses)} responses")
+        logger.info(f"PROCESS_JOB: ChatService returned mode: {mode}, {len(responses)} responses for job {job_id}")
+        
+        # Send responses via Slack
+        messages_sent = []
         
         if mode == "chat_mode":
             # Single persona response
@@ -232,11 +311,17 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
                 response_text = f"<@{user}> {response['text']}"
                 
                 if channel_type == "im":
-                    client.chat_postMessage(text=response_text, channel=channel)
+                    result = slack_client.chat_postMessage(text=response_text, channel=channel)
                 else:
-                    client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+                    result = slack_client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
+                
+                messages_sent.append({
+                    "type": "chat_response",
+                    "persona": response.get('persona_name'),
+                    "message_ts": result.get("ts")
+                })
                     
-                logger.info(f"Sent chat mode response using persona: {response.get('persona_name')}")
+                logger.info(f"PROCESS_JOB: Sent chat mode response using persona: {response.get('persona_name')} for job {job_id}")
         
         elif mode == "ab_testing":
             # A/B testing responses
@@ -245,54 +330,63 @@ def handle_message(message: Dict[str, Any], client: WebClient) -> None:
                 intro_text = f"<@{user}> {metadata.get('intro_message', 'Here are two responses:')}"
                 
                 if channel_type == "im":
-                    client.chat_postMessage(text=intro_text, channel=channel)
+                    intro_result = slack_client.chat_postMessage(text=intro_text, channel=channel)
                     
                     # Send response A
-                    resp_a = client.chat_postMessage(
+                    resp_a = slack_client.chat_postMessage(
                         channel=channel,
                         **responses[0]['slack_message']
                     )
                     
                     # Send response B  
-                    resp_b = client.chat_postMessage(
+                    resp_b = slack_client.chat_postMessage(
                         channel=channel,
                         **responses[1]['slack_message']
                     )
                     
                 else:
-                    client.chat_postMessage(text=intro_text, channel=channel, thread_ts=thread_ts)
+                    intro_result = slack_client.chat_postMessage(text=intro_text, channel=channel, thread_ts=thread_ts)
                     
                     # Send response A in thread
-                    resp_a = client.chat_postMessage(
+                    resp_a = slack_client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
                         **responses[0]['slack_message']
                     )
                     
                     # Send response B in thread
-                    resp_b = client.chat_postMessage(
+                    resp_b = slack_client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
                         **responses[1]['slack_message']
                     )
                 
-                logger.info(f"Sent A/B testing responses for test {metadata.get('ab_test_id')}")
+                messages_sent.extend([
+                    {"type": "intro", "message_ts": intro_result.get("ts")},
+                    {"type": "response_a", "message_ts": resp_a.get("ts")},
+                    {"type": "response_b", "message_ts": resp_b.get("ts")}
+                ])
+                
+                logger.info(f"PROCESS_JOB: Sent A/B testing responses, test {metadata.get('ab_test_id')} for job {job_id}")
+        
+        return jsonify({
+            "status": "success",
+            "action": "processed",
+            "mode": mode,
+            "messages_sent": messages_sent,
+            "job_id": job_id
+        })
         
     except Exception as e:
-        logger.error(f"Error handling message with ChatService: {e}")
-        # Fallback to normal chat mode using standard Claude response
-        try:
-            claude_reply = get_standard_claude_response(conversation)
-            response_text = f"<@{user}> {claude_reply}"
-            
-            if channel_type == "im":
-                client.chat_postMessage(text=response_text, channel=channel)
-            else:
-                client.chat_postMessage(text=response_text, channel=channel, thread_ts=thread_ts)
-                
-            logger.info("Sent fallback response using standard chat mode")
-        except Exception as fallback_e:
-            logger.error(f"Even fallback failed: {fallback_e}")
+        logger.error(f"PROCESS_JOB: Error processing job: {e}")
+        import traceback
+        logger.error(f"PROCESS_JOB: Traceback: {traceback.format_exc()}")
+        
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 
 @app.route("/interactive", methods=["POST"])

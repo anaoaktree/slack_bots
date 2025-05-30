@@ -47,14 +47,28 @@ def _get_default_system_prompt() -> str:
     
     return _DEFAULT_SYSTEM_PROMPT
 
-def get_standard_claude_response(conversation: List[Dict], system_prompt: str|None=None, model_name: str|None=None, temperature: float=1.0, max_tokens: int=2000) -> str:
+def get_standard_claude_response(conversation: List[Dict], system_prompt: str|None=None, model_name: str|None=None, temperature: float=1.0, max_tokens: int=2000) -> str | None:
     """Generate standard text using Claude API."""
     # Use cached default prompt instead of reading file every time
     system_prompt = system_prompt or _get_default_system_prompt()
     model_name = MODELS[model_name] if model_name else MODELS["sonnet"]
     
-    # Log the request details for debugging
-    logger.info(f"Making Claude API request: model={model_name}, max_tokens={max_tokens}, temperature={temperature}")
+    # Check if conversation already ends with assistant response
+    if conversation and conversation[-1].get("role") == "assistant":
+        logger.warning(f"CONVERSATION_ALREADY_COMPLETE: Last message is from assistant!")
+        logger.warning(f"This might indicate duplicate processing or conversation history timing issue")
+        return None  # Return None to indicate no response needed
+    
+    # Check for empty conversation
+    if not conversation:
+        logger.error(f"EMPTY_CONVERSATION: No messages to process!")
+        return "I didn't receive any messages to respond to."
+    
+    # Check for conversation with only assistant messages
+    user_messages = [msg for msg in conversation if msg.get("role") == "user"]
+    if not user_messages:
+        logger.error(f"NO_USER_MESSAGES: Conversation has no user messages!")
+        return "I don't see any user messages to respond to."
 
     try:
         claude_message = claude.messages.create(
@@ -87,7 +101,16 @@ def get_standard_claude_response(conversation: List[Dict], system_prompt: str|No
                 # if citations:
                 #     response.append("\n" + "\n".join(citations))
         
-        return "\n".join(response)
+        final_response = "\n".join(response)
+        
+        # Log the response details
+        logger.info(f"CLAUDE_RESPONSE: length={len(final_response)}, preview='{final_response[:100]}{'...' if len(final_response) > 100 else ''}'")
+        
+        if not final_response or final_response.strip() == "":
+            logger.error(f"EMPTY_CLAUDE_RESPONSE: Claude returned empty response!")
+            logger.error(f"Raw response blocks: {[block.text for block in claude_message.content if block.type == 'text']}")
+        
+        return final_response
         
     except anthropic.APIConnectionError as e:
         logger.error(f"Anthropic API connection error: {e}")

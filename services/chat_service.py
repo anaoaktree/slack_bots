@@ -47,7 +47,7 @@ class ChatService:
     
     @staticmethod
     def handle_user_message(user_id: str, channel_id: str, thread_ts: str, 
-                          message_text: str, conversation: List[Dict]) -> Dict:
+                          message_text: str, conversation: List[Dict]) -> Dict | None:
         """
         Handle a user message and return appropriate response(s) based on mode.
         
@@ -80,9 +80,9 @@ class ChatService:
             }
             
             # Log full error details
-            logger.error(f"❌ CRITICAL ERROR handling message for user {user_id}: {e}")
-            logger.error(f"🔍 Error Details: {error_details}")
-            logger.error(f"📝 Full Traceback:\n{traceback.format_exc()}")
+            logger.error(f"CRITICAL ERROR handling message for user {user_id}: {e}")
+            logger.error(f"Error Details: {error_details}")
+            logger.error(f"Full Traceback:\n{traceback.format_exc()}")
             
             # Fallback to simple response in chat mode (default behavior)
             return {
@@ -96,7 +96,7 @@ class ChatService:
     
     @staticmethod
     def _handle_chat_mode(user_id: str, channel_id: str, thread_ts: str, 
-                         message_text: str, conversation: List[Dict]) -> Dict:
+                         message_text: str, conversation: List[Dict]) -> Dict | None:
         """Handle message in chat mode using active persona."""
         try:
             # Get active persona
@@ -121,6 +121,9 @@ class ChatService:
                 model_name=active_persona['model']
             )
             
+            if not response_text:
+                return None
+            
             return {
                 "mode": "chat_mode",
                 "responses": [{
@@ -141,7 +144,7 @@ class ChatService:
     
     @staticmethod
     def _handle_ab_testing_mode(user_id: str, channel_id: str, thread_ts: str,
-                               message_text: str, conversation: List[Dict]) -> Dict:
+                               message_text: str, conversation: List[Dict]) -> Dict | None:
         """Handle message in A/B testing mode."""
         try:
             # Use existing A/B testing service
@@ -167,6 +170,9 @@ class ChatService:
                 test_id=ab_test.id,
                 user_id=user_id
             )
+            
+            if not response_a or not response_b:
+                return None
             
             return {
                 "mode": "ab_testing",

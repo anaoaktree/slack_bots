@@ -39,9 +39,15 @@ def get_conversation_history(
     conversation = []
     messages = get_thread_history(client, channel, thread_ts)
 
-    for msg in messages:
+
+    for i, msg in enumerate(messages):
         role = "assistant" if msg.get("user") == bot_user_id else "user"
         msg_text = clean_user_mentions(msg["text"])
+        msg_ts = msg.get("ts", "unknown")
+        msg_user = msg.get("user", "unknown")
+        
+        logger.info(f"RAW_MSG[{i}]: user={msg_user}, role={role}, ts={msg_ts}, text='{msg_text[:50]}{'...' if len(msg_text) > 50 else ''}'")
+        
         content = []
 
         # Handle any files in the message
@@ -70,8 +76,8 @@ def get_conversation_history(
         # Add text content if present
         if msg_text:
             content.append({"type": "text", "text": msg_text})
+            conversation.append({"role": role, "content": content})
 
-        conversation.append({"role": role, "content": content})
 
     return conversation
 

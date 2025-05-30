@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from typing import Optional
 
@@ -125,3 +125,101 @@ class AIPersona(db.Model):
     __table_args__ = (
         db.UniqueConstraint('user_id', 'name', name='unique_user_persona_name'),
     ) 
+
+
+class MessageProcessingJob(db.Model):
+    """Track message processing jobs for PythonAnywhere async processing pattern."""
+    __tablename__ = 'message_processing_jobs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    message_key = db.Column(db.String(255), unique=True, nullable=False, index=True)  # channel:timestamp
+    event_type = db.Column(db.String(50), nullable=False)  # 'message' or 'app_mention'
+    user_id = db.Column(db.String(100), nullable=False)
+    channel_id = db.Column(db.String(100), nullable=False)
+    message_ts = db.Column(db.String(50), nullable=False)
+    thread_ts = db.Column(db.String(50), nullable=True)
+    message_text = db.Column(db.Text, nullable=True)
+    event_payload = db.Column(db.Text, nullable=False)  # JSON serialized Slack event
+    
+    # Job status tracking
+    status = db.Column(db.String(20), default='queued', nullable=False)  # queued, processing, completed, failed
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Error tracking
+    error_message = db.Column(db.Text, nullable=True)
+    retry_count = db.Column(db.Integer, default=0, nullable=False)
+    
+    def __repr__(self):
+        return f'<MessageProcessingJob {self.message_key} status={self.status}>'
+    
+    @staticmethod
+    def add_job(event_type, user_id, channel_id, message_ts, thread_ts, message_text, event_payload):
+        """Add a new message processing job to the queue."""
+        message_key = f"{channel_id}:{message_ts}"
+        
+        # Check if job already exists
+        existing = MessageProcessingJob.query.filter_by(message_key=message_key).first()
+        if existing:
+            return None  # Job already exists
+        
+        job = MessageProcessingJob(
+            message_key=message_key,
+            event_type=event_type,
+            user_id=user_id,
+            channel_id=channel_id,
+            message_ts=message_ts,
+            thread_ts=thread_ts,
+            message_text=message_text,
+            event_payload=event_payload
+        )
+        
+        try:
+            db.session.add(job)
+            db.session.commit()
+            return job
+        except Exception:
+            db.session.rollback()
+            return None
+    
+    @staticmethod
+    def get_next_job():
+        """Get the next job to process."""
+        return MessageProcessingJob.query.filter_by(status='queued').order_by(MessageProcessingJob.created_at).first()
+    
+    def start_processing(self):
+        """Mark job as processing."""
+        self.status = 'processing'
+        self.started_at = datetime.utcnow()
+        db.session.commit()
+    
+    def complete_successfully(self):
+        """Mark job as completed successfully."""
+        self.status = 'completed'
+        self.completed_at = datetime.utcnow()
+        db.session.commit()
+    
+    def fail_with_error(self, error_message):
+        """Mark job as failed with error."""
+        self.status = 'failed'
+        self.completed_at = datetime.utcnow()
+        self.error_message = error_message
+        self.retry_count += 1
+        db.session.commit()
+    
+    @staticmethod
+    def cleanup_old_jobs(days=7):
+        """Clean up completed jobs older than specified days."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        old_jobs = MessageProcessingJob.query.filter(
+            MessageProcessingJob.completed_at < cutoff_date,
+            MessageProcessingJob.status.in_(['completed', 'failed'])
+        ).all()
+        
+        count = len(old_jobs)
+        for job in old_jobs:
+            db.session.delete(job)
+        
+        db.session.commit()
+        return count 
