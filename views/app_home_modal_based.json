@@ -1,0 +1,212 @@
+{
+    "type": "home",
+    "blocks": [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🤖 AI Assistant Configuration"
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Configure your AI experience - compare personas in A/B testing or chat with your favorite persona"
+                }
+            ]
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Choose your interaction mode:*"
+            },
+            "accessory": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select mode"
+                },
+                "action_id": "mode_selector",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💬 Chat Mode - Use a single persona"
+                        },
+                        "value": "chat_mode"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔬 A/B Testing - Compare two personas"
+                        },
+                        "value": "ab_testing"
+                    }
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💬 Chat Mode - Use a single persona"
+                    },
+                    "value": "chat_mode"
+                }
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*💬 Chat Mode Configuration*"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Active Chat Persona:*"
+            },
+            "accessory": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose active persona"
+                },
+                "action_id": "chat_persona_selector",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Assistant - Helpful & balanced"
+                        },
+                        "value": "1"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*📝 Name:*\n{persona_name}"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*📖 Description:*\n{persona_description}"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🧠 AI Model:*\n{persona_model}"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🎛️ Temperature:*\n{persona_temperature} (Higher = more creative, Lower = more conservative)"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*💭 System Prompt:*"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "```\n{persona_system_prompt}\n```"
+            }
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "✏️ Edit Persona"
+                    },
+                    "action_id": "edit_chat_persona",
+                    "style": "primary"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "➕ Create New Persona"
+                    },
+                    "action_id": "create_persona"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🗑️ Delete Persona"
+                    },
+                    "action_id": "delete_persona",
+                    "style": "danger"
+                }
+            ]
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🆚 A/B Testing Configuration*"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🅰️ Persona A:* {persona_a_name}\n*🅱️ Persona B:* {persona_b_name}"
+            }
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "⚙️ Configure A/B Testing"
+                    },
+                    "action_id": "configure_ab_testing",
+                    "style": "primary"
+                }
+            ]
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 *Pro tip:* Use modals for focused editing - no more page refreshes needed! Changes are applied instantly."
+                }
+            ]
+        }
+    ]
+} 

@@ -37,18 +37,25 @@
                     {
                         "text": {
                             "type": "plain_text",
-                            "text": "💬 Chat Mode - Use active persona"
+                            "text": "💬 Chat Mode - Use a single persona"
                         },
                         "value": "chat_mode"
                     },
                     {
                         "text": {
                             "type": "plain_text",
-                            "text": "🆚 A/B Testing - Compare two personas"
+                            "text": "🔬 A/B Testing - Compare two personas"
                         },
                         "value": "ab_testing"
                     }
-                ]
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💬 Chat Mode - Use a single persona"
+                    },
+                    "value": "chat_mode"
+                }
             }
         },
         {
@@ -58,7 +65,7 @@
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*💬 Chat Mode Configuration*\nChat with your active persona. All responses will use this persona's settings."
+                "text": "*💬 Chat Mode Configuration*\nEdit your active persona settings directly below:"
             }
         },
         {
@@ -86,23 +93,135 @@
             }
         },
         {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": "*Model:* Claude Sonnet"
+            "type": "input",
+            "block_id": "chat_persona_name",
+            "element": {
+                "type": "plain_text_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "e.g. Technical Writer, Data Analyst, Creative Helper"
                 },
-                {
-                    "type": "mrkdwn",
-                    "text": "*Temperature:* 0.3 (Balanced)"
-                }
-            ]
+                "action_id": "chat_name_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Persona Name"
+            }
         },
         {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*System Prompt:*\nYou are a helpful AI assistant. Provide clear, accurate, and balanced responses. Be concise but thorough."
+            "type": "input",
+            "block_id": "chat_persona_description",
+            "element": {
+                "type": "plain_text_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief description of this persona's purpose and expertise"
+                },
+                "action_id": "chat_description_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Description (Optional)"
+            },
+            "optional": true
+        },
+        {
+            "type": "input",
+            "block_id": "chat_ai_model",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose AI model"
+                },
+                "action_id": "chat_model_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet - Fast & balanced"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus - Most capable"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "AI Model"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "chat_temperature",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose creativity level"
+                },
+                "action_id": "chat_temperature_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.1 - Very conservative & predictable"
+                        },
+                        "value": "0.1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Mostly conservative"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Balanced creativity"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very creative & unpredictable"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Temperature (Creativity Level)"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "chat_system_prompt",
+            "element": {
+                "type": "plain_text_input",
+                "multiline": true,
+                "max_length": 3000,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Enter the system prompt that defines this persona's behavior, expertise, and response style..."
+                },
+                "action_id": "chat_prompt_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt"
             }
         },
         {
@@ -112,9 +231,9 @@
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "✏️ Edit Persona"
+                        "text": "💾 Save Chat Persona"
                     },
-                    "action_id": "edit_chat_persona",
+                    "action_id": "save_chat_persona",
                     "style": "primary"
                 },
                 {
@@ -124,14 +243,6 @@
                         "text": "➕ Create New Persona"
                     },
                     "action_id": "create_persona"
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🎯 Activate Chat Mode"
-                    },
-                    "action_id": "switch_to_chat_mode"
                 }
             ]
         },
@@ -142,120 +253,309 @@
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*🆚 A/B Testing Configuration*\nCompare two different personas side-by-side and vote for your preferred responses."
+                "text": "*🆚 A/B Testing Configuration*\nConfigure both personas for side-by-side comparison."
             }
         },
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Persona Comparison Setup:*"
+                "text": "*🅰️ Persona A Configuration*"
             }
         },
         {
             "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": "*🅰️ Response A Persona*"
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Select Base Persona A:*"
+            },
+            "accessory": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose persona A"
                 },
-                {
-                    "type": "mrkdwn",
-                    "text": "*🅱️ Response B Persona*"
-                }
-            ]
+                "action_id": "ab_persona_a_selector",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Assistant - Helpful & balanced"
+                        },
+                        "value": "1"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_a_name",
+            "element": {
+                "type": "plain_text_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Name for Persona A"
+                },
+                "action_id": "ab_a_name_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Persona A Name"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_a_model",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose AI model"
+                },
+                "action_id": "ab_a_model_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet - Fast & balanced"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus - Most capable"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "AI Model A"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_a_temperature",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose creativity level"
+                },
+                "action_id": "ab_a_temperature_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.1 - Very conservative & predictable"
+                        },
+                        "value": "0.1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Mostly conservative"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Balanced creativity"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very creative & unpredictable"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Temperature A"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_a_prompt",
+            "element": {
+                "type": "plain_text_input",
+                "multiline": true,
+                "max_length": 3000,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "System prompt for Persona A..."
+                },
+                "action_id": "ab_a_prompt_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt A"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🅱️ Persona B Configuration*"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Select Base Persona B:*"
+            },
+            "accessory": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose persona B"
+                },
+                "action_id": "ab_persona_b_selector",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Assistant - Helpful & balanced"
+                        },
+                        "value": "1"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_b_name",
+            "element": {
+                "type": "plain_text_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Name for Persona B"
+                },
+                "action_id": "ab_b_name_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Persona B Name"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_b_model",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose AI model"
+                },
+                "action_id": "ab_b_model_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet - Fast & balanced"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus - Most capable"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "AI Model B"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_b_temperature",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Choose creativity level"
+                },
+                "action_id": "ab_b_temperature_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.1 - Very conservative & predictable"
+                        },
+                        "value": "0.1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Mostly conservative"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Balanced creativity"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very creative & unpredictable"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Temperature B"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "ab_persona_b_prompt",
+            "element": {
+                "type": "plain_text_input",
+                "multiline": true,
+                "max_length": 3000,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "System prompt for Persona B..."
+                },
+                "action_id": "ab_b_prompt_input",
+                "initial_value": ""
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt B"
+            }
         },
         {
             "type": "actions",
             "elements": [
                 {
-                    "type": "static_select",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Choose persona A"
-                    },
-                    "action_id": "ab_persona_a_selector",
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Assistant - Helpful & balanced"
-                            },
-                            "value": "1"
-                        }
-                    ]
-                },
-                {
-                    "type": "static_select",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Choose persona B"
-                    },
-                    "action_id": "ab_persona_b_selector",
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Assistant - Helpful & balanced"
-                            },
-                            "value": "1"
-                        }
-                    ]
-                }
-            ]
-        },
-        {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": "*A: Assistant*\n• Model: Claude Sonnet\n• Temperature: 0.3 (Balanced)\n• Style: Helpful & accurate"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": "*B: Creative*\n• Model: Claude Opus\n• Temperature: 1.0 (Creative)\n• Style: Expressive & imaginative"
-                }
-            ]
-        },
-        {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": "*Prompt A:* You are a helpful AI assistant. Provide clear, accurate, and balanced responses..."
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": "*Prompt B:* You are a creative and expressive AI assistant. Think outside the box, use vivid language..."
-                }
-            ]
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "✏️ Edit Persona A"
+                        "text": "💾 Save A/B Configuration"
                     },
-                    "action_id": "edit_ab_persona_a"
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "✏️ Edit Persona B"
-                    },
-                    "action_id": "edit_ab_persona_b"
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🆚 Activate A/B Mode"
-                    },
-                    "action_id": "save_ab_settings",
+                    "action_id": "save_ab_configuration",
                     "style": "primary"
                 }
             ]
@@ -305,7 +605,7 @@
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💡 *Pro tip:* Edit personas directly from this page! Click 'Edit Persona' to modify settings, or create new ones for different use cases."
+                    "text": "💡 *Pro tip:* Edit personas directly from this page! Select a saved persona from the dropdowns above and modify any settings, then save your changes."
                 }
             ]
         }

@@ -1,0 +1,190 @@
+{
+    "type": "modal",
+    "callback_id": "edit_persona_modal",
+    "title": {
+        "type": "plain_text",
+        "text": "✏️ Edit Persona"
+    },
+    "submit": {
+        "type": "plain_text",
+        "text": "Save Changes"
+    },
+    "close": {
+        "type": "plain_text",
+        "text": "Cancel"
+    },
+    "private_metadata": "",
+    "blocks": [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Editing:* {persona_name}"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "input",
+            "block_id": "persona_name",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "name_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "e.g., Creative Writer, Code Helper, Research Assistant"
+                },
+                "max_length": 100,
+                "initial_value": "{initial_name}"
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Persona Name"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "persona_description",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "description_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief description of this persona's purpose and style"
+                },
+                "max_length": 200,
+                "initial_value": "{initial_description}"
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Description"
+            },
+            "optional": true
+        },
+        {
+            "type": "section",
+            "block_id": "model_selection",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*AI Model*"
+            },
+            "accessory": {
+                "type": "radio_buttons",
+                "action_id": "model_select",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Sonnet"
+                        },
+                        "description": {
+                            "type": "plain_text",
+                            "text": "Balanced, efficient, good for most tasks"
+                        },
+                        "value": "sonnet"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Claude Opus"
+                        },
+                        "description": {
+                            "type": "plain_text",
+                            "text": "Most capable, creative, best for complex tasks"
+                        },
+                        "value": "opus"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "section",
+            "block_id": "temperature_section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Temperature*\n_Higher = more creative, Lower = more conservative_"
+            },
+            "accessory": {
+                "type": "static_select",
+                "action_id": "temperature_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select creativity level"
+                },
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.1 - Very conservative & predictable"
+                        },
+                        "value": "0.1"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.3 - Mostly conservative"
+                        },
+                        "value": "0.3"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.5 - Balanced"
+                        },
+                        "value": "0.5"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "0.7 - Balanced creativity"
+                        },
+                        "value": "0.7"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "1.0 - Very creative & unpredictable"
+                        },
+                        "value": "1.0"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*System Prompt*\nDefines the persona's behavior, expertise, and response style"
+            }
+        },
+        {
+            "type": "input",
+            "block_id": "system_prompt",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "prompt_input",
+                "multiline": true,
+                "max_length": 3000,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "You are a helpful AI assistant. Describe your personality, tone, expertise, and how you should respond to users..."
+                },
+                "initial_value": "{initial_prompt}"
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "System Prompt"
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 *Tip:* Changes are saved immediately when you click 'Save Changes'. Your chat mode will use the updated persona right away."
+                }
+            ]
+        }
+    ]
+} 
