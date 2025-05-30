@@ -296,6 +296,7 @@ ENVIRONMENT REQUIREMENTS:
 You can use as many tools as you need and in any order to identify the issue. You can also:
 - Add debug statements in the code if needed.
 - Read the log files saved by the tools in `scripts/logs`
+- Create scripts to debug. You should create them inside .debug/ folder.
 
 You CANNOT:
 - change any existing functionality (only fix bugs that break functionality)
@@ -304,4 +305,5 @@ You SHOULD:
 - Troubleshoot as much as you need with all the available tools
 - Diagnose the issue
 - Test to make sure your diagnosis is correct
-- Provide a solution
+- Double check your assumptions are correct and think of a potential alternative
+- Provide the highest quality solution alongside an alternative 
