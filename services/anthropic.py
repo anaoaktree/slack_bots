@@ -9,7 +9,13 @@ load_dotenv()
 
 logger = setup_logger(__name__)
 
-claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+# Validate API key at startup
+api_key = os.environ.get("ANTHROPIC_API_KEY")
+if not api_key:
+    logger.error("CRITICAL: ANTHROPIC_API_KEY environment variable is not set!")
+    logger.error("Please ensure your environment contains ANTHROPIC_API_KEY=your_api_key_here")
+
+claude = anthropic.Anthropic(api_key=api_key)
 
 MODELS = {
     "sonnet": "claude-sonnet-4-20250514",
@@ -49,7 +55,7 @@ def get_standard_claude_response(conversation: List[Dict], system_prompt: str|No
     
     # Log the request details for debugging
     logger.info(f"Making Claude API request: model={model_name}, max_tokens={max_tokens}, temperature={temperature}")
-    
+
     try:
         claude_message = claude.messages.create(
             model=model_name,
@@ -58,8 +64,6 @@ def get_standard_claude_response(conversation: List[Dict], system_prompt: str|No
             temperature=temperature,
             messages=conversation,
         )
-        
-        logger.info(f"Claude API response received: {claude_message.usage}")
         
         # Handle potential multiple content blocks
         response = []
@@ -87,15 +91,19 @@ def get_standard_claude_response(conversation: List[Dict], system_prompt: str|No
         
     except anthropic.APIConnectionError as e:
         logger.error(f"Anthropic API connection error: {e}")
-        logger.error(f"API Key present: {bool(api_key)}, API Key prefix: {api_key[:10] if api_key else 'None'}...")
+        logger.error(f"API Key status - Present: {bool(api_key)}, Prefix: {api_key[:10] if api_key else 'None'}...")
+        logger.error("Troubleshooting: Check internet connection, API key validity, and Anthropic service status")
         raise Exception("Connection error") from e
     except anthropic.RateLimitError as e:
         logger.error(f"Anthropic API rate limit error: {e}")
+        logger.error("Troubleshooting: You've exceeded the API rate limits. Wait and try again later.")
         raise Exception("Rate limit exceeded") from e
     except anthropic.APIError as e:
         logger.error(f"Anthropic API error: {e}")
+        logger.error("Troubleshooting: Check API key permissions and model availability")
         raise Exception("API error") from e
     except Exception as e:
         logger.error(f"Unexpected error calling Anthropic API: {e}")
         logger.error(f"Request details: model={model_name}, conversation_length={len(conversation)}")
+        logger.error(f"API Key status: Present={bool(api_key)}, Length={len(api_key) if api_key else 0}")
         raise Exception("API error") from e
