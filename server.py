@@ -7,11 +7,11 @@ import logging
 import certifi
 from dotenv import load_dotenv
 from slack_sdk import WebClient
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template, flash, redirect, url_for
 from flask_migrate import Migrate
 
 from config import config
-from models import db, ABVote
+from models import db, ABVote, UserPreferences, SystemPrompt, AIPersona, ABTest
 from services import (
     get_conversation_history,
     get_standard_claude_response,
@@ -70,65 +70,6 @@ def init_db():
     """Initialize the database."""
     db.create_all()
     print("Database tables created.")
-
-@app.cli.command()
-def populate_defaults():
-    """Populate database with default system prompts and personas."""
-    from services import SystemPromptManager, PersonaManager
-    
-    # Create default system prompts
-    default_prompts = [
-        {
-            'title': 'Assistant',
-            'description': 'General helpful assistant',
-            'content': 'You are a helpful AI assistant. Provide clear, accurate, and balanced responses. Be concise but thorough.'
-        },
-        {
-            'title': 'Creative Writer',
-            'description': 'Expressive and imaginative responses',
-            'content': 'You are a creative and expressive AI assistant. Think outside the box, use vivid language, and bring imagination to your responses. Be artistic and inspiring.'
-        },
-        {
-            'title': 'Technical Analyst',
-            'description': 'Logical and precise analysis',
-            'content': 'You are an analytical AI assistant focused on logic, precision, and data-driven insights. Provide structured, methodical responses with clear reasoning.'
-        },
-        {
-            'title': 'Code Helper',
-            'description': 'Programming assistance',
-            'content': 'You are an expert software engineer. Provide clear, efficient code solutions with explanations. Always include error handling and best practices.'
-        },
-        {
-            'title': 'Writing Coach',
-            'description': 'Style and clarity guidance',
-            'content': 'You are a professional writing coach. Help improve clarity, style, and structure. Provide specific suggestions with examples.'
-        }
-    ]
-    
-    # Use a system user ID for default prompts
-    system_user_id = "SYSTEM_DEFAULT"
-    
-    for prompt_data in default_prompts:
-        try:
-            prompt = SystemPromptManager.create_prompt(
-                user_id=system_user_id,
-                title=prompt_data['title'],
-                content=prompt_data['content'],
-                description=prompt_data['description']
-            )
-            if prompt:
-                # Mark as default
-                from models import SystemPrompt
-                system_prompt = SystemPrompt.query.get(prompt['id'])
-                system_prompt.is_default = True
-                db.session.commit()
-                print(f"Created default prompt: {prompt_data['title']}")
-            else:
-                print(f"Prompt {prompt_data['title']} already exists")
-        except Exception as e:
-            print(f"Error creating prompt {prompt_data['title']}: {e}")
-    
-    print("Default system prompts populated.")
 
 @app.cli.command()
 def reset_db():
@@ -498,7 +439,7 @@ def handle_chat_persona_selection(payload: Dict[str, Any], action: Dict[str, Any
             # Send confirmation message with refresh instruction
             slack_client.chat_postMessage(
                 channel=user_id,
-                text=f"✅ **Active persona changed to '{persona_name}'**\n\n🔄 *The home tab should refresh automatically, but if you don't see the updated fields below, please refresh your Slack app or click on another tab and back to the Home tab.*"
+                text=f"✅ **Active persona changed to '{persona_name}'**"
             )
             
             logger.info(f"Updated active persona to {persona_id} for user {user_id}")
@@ -1175,9 +1116,20 @@ def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
     try:
         view = load_json_view("app_home_modal_based")
         
-        # Get user preferences and personas
-        user_prefs = UserPreferencesService.get_user_preferences(user_id)
-        personas = PersonaManager.get_user_personas(user_id)
+        # Get user preferences and personas with error handling
+        try:
+            user_prefs = UserPreferencesService.get_user_preferences(user_id)
+            personas = PersonaManager.get_user_personas(user_id)
+        except Exception as db_error:
+            logger.error(f"Database error loading user data for {user_id}: {db_error}")
+            # Return view with error message
+            for block in view['blocks']:
+                if block.get('type') == 'section' and 'text' in block:
+                    text = block['text'].get('text', '')
+                    if 'persona_name' in text or 'Active Chat Persona' in text:
+                        block['text']['text'] = "⚠️ *Database Connection Error*\nCannot load personas. Please try again later."
+                        break
+            return view
         
         # Update mode selector - default to chat mode
         current_mode = "chat_mode" if user_prefs.get('chat_mode_enabled', True) else "ab_testing"
@@ -1190,40 +1142,46 @@ def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
         
         # Update persona dropdowns with actual user personas
         persona_options = []
-        for persona in personas:
-            name = persona['name']
-            
-            persona_options.append({
-                "text": {"type": "plain_text", "text": name},
-                "value": str(persona['id'])
-            })
+        if personas:  # Only build options if we have personas
+            for persona in personas:
+                name = persona['name']
+                persona_options.append({
+                    "text": {"type": "plain_text", "text": name},
+                    "value": str(persona['id'])
+                })
         
         # Get active persona for chat mode
         active_persona = None
-        if user_prefs.get('active_persona_id'):
-            active_persona = PersonaManager.get_persona_by_id(user_prefs['active_persona_id'], user_id)
+        if user_prefs.get('active_persona_id') and personas:
+            try:
+                active_persona = PersonaManager.get_persona_by_id(user_prefs['active_persona_id'], user_id)
+            except Exception as e:
+                logger.error(f"Error loading active persona for {user_id}: {e}")
         
         if not active_persona and personas:
-            # Find Assistant persona first
+            # Find Assistant persona first, then fallback to first available
             assistant_persona = next((p for p in personas if p['name'].lower() == 'assistant'), None)
             if assistant_persona:
                 active_persona = assistant_persona
-                PersonaManager.set_active_persona(user_id, assistant_persona['id'])
+                try:
+                    PersonaManager.set_active_persona(user_id, assistant_persona['id'])
+                except Exception as e:
+                    logger.error(f"Error setting default active persona for {user_id}: {e}")
             else:
                 active_persona = personas[0]
         
-        # Get A/B testing personas
-        persona_a = user_prefs.get('response_a', {})
-        persona_b = user_prefs.get('response_b', {})
+        # Get A/B testing personas with error handling
+        persona_a = user_prefs.get('response_a', {}) if user_prefs else {}
+        persona_b = user_prefs.get('response_b', {}) if user_prefs else {}
         
         # Update persona selectors and display current info
         for block in view['blocks']:
             accessory = block.get('accessory', {})
             action_id = accessory.get('action_id')
             
-            # Update persona selector dropdowns
+            # Update persona selector dropdowns - only if we have valid options
             if action_id == 'chat_persona_selector':
-                if persona_options:
+                if persona_options:  # Only update if we successfully loaded personas
                     accessory['options'] = persona_options
                     if active_persona:
                         persona_id = str(active_persona['id'])
@@ -1231,6 +1189,36 @@ def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
                             if option['value'] == persona_id:
                                 accessory['initial_option'] = option
                                 break
+                else:
+                    # Add database error message to placeholder
+                    accessory['placeholder'] = {
+                        "type": "plain_text", 
+                        "text": "⚠️ Database error - cannot load personas"
+                    }
+            
+            # Also update A/B testing persona dropdowns with available personas
+            elif action_id in ['ab_persona_a_selector', 'ab_persona_b_selector']:
+                if persona_options:  # Only update if we successfully loaded personas
+                    accessory['options'] = persona_options
+                    # Set initial selection if A/B persona is configured
+                    if action_id == 'ab_persona_a_selector' and persona_a.get('persona_id'):
+                        persona_id = str(persona_a['persona_id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+                    elif action_id == 'ab_persona_b_selector' and persona_b.get('persona_id'):
+                        persona_id = str(persona_b['persona_id'])
+                        for option in persona_options:
+                            if option['value'] == persona_id:
+                                accessory['initial_option'] = option
+                                break
+                else:
+                    # Add database error message to placeholder
+                    accessory['placeholder'] = {
+                        "type": "plain_text", 
+                        "text": "⚠️ Database error"
+                    }
             
             # Update display text with current persona info
             if block.get('type') == 'section' and 'text' in block:
@@ -1246,8 +1234,8 @@ def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
                         block['text']['text'] = text
                     elif '{persona_model}' in text:
                         model_display = {
-                            'sonnet': 'Claude 3.5 Sonnet',
-                            'opus': 'Claude 3 Opus'
+                            'sonnet': 'Claude 4 Sonnet',
+                            'opus': 'Claude 4 Opus'
                         }.get(active_persona['model'], active_persona['model'])
                         text = text.replace('{persona_model}', model_display)
                         block['text']['text'] = text
@@ -1256,23 +1244,35 @@ def update_modal_based_home_tab(user_id: str) -> Dict[str, Any]:
                         text = text.replace('{persona_temperature}', temp_value)
                         block['text']['text'] = text
                     elif '{persona_system_prompt}' in text:
-                        # Show the full system prompt without truncation
+                        # Show the system prompt with truncation to stay under Slack's 3000 char limit
                         full_prompt = active_persona.get('system_prompt', 'No system prompt defined')
-                        text = text.replace('{persona_system_prompt}', full_prompt)
+                        # Reserve space for markdown formatting and other text (~200 chars)
+                        max_prompt_length = 2800
+                        if len(full_prompt) > max_prompt_length:
+                            truncated_prompt = full_prompt[:max_prompt_length] + "..."
+                            text = text.replace('{persona_system_prompt}', truncated_prompt)
+                        else:
+                            text = text.replace('{persona_system_prompt}', full_prompt)
                         block['text']['text'] = text
                 
                 # Handle A/B testing placeholders
                 if '{persona_a_name}' in text or '{persona_b_name}' in text:
                     persona_a_name = "Not configured"
                     persona_b_name = "Not configured"
-                    if persona_a.get('persona_id'):
-                        persona_a_data = PersonaManager.get_persona_by_id(persona_a['persona_id'], user_id)
-                        if persona_a_data:
-                            persona_a_name = persona_a_data['name']
-                    if persona_b.get('persona_id'):
-                        persona_b_data = PersonaManager.get_persona_by_id(persona_b['persona_id'], user_id)
-                        if persona_b_data:
-                            persona_b_name = persona_b_data['name']
+                    if persona_a.get('persona_id') and personas:
+                        try:
+                            persona_a_data = PersonaManager.get_persona_by_id(persona_a['persona_id'], user_id)
+                            if persona_a_data:
+                                persona_a_name = persona_a_data['name']
+                        except Exception as e:
+                            logger.error(f"Error loading persona A data for {user_id}: {e}")
+                    if persona_b.get('persona_id') and personas:
+                        try:
+                            persona_b_data = PersonaManager.get_persona_by_id(persona_b['persona_id'], user_id)
+                            if persona_b_data:
+                                persona_b_name = persona_b_data['name']
+                        except Exception as e:
+                            logger.error(f"Error loading persona B data for {user_id}: {e}")
                     
                     text = text.replace('{persona_a_name}', persona_a_name)
                     text = text.replace('{persona_b_name}', persona_b_name)
@@ -1898,3 +1898,434 @@ def handle_exception(e):
         "error_id": error_id,
         "message": "An unexpected error occurred. Please try again later."
     }), 500
+
+# Admin Dashboard Routes
+from flask import render_template, flash, redirect, url_for
+from datetime import datetime
+
+@app.route("/admin")
+def admin_dashboard():
+    """
+    Main admin dashboard with overview statistics.
+    """
+    try:
+        # Get statistics
+        total_users = UserPreferences.query.count()
+        total_prompts = SystemPrompt.query.count()
+        total_personas = AIPersona.query.count()
+        total_tests = ABTest.query.count()
+        
+        stats = {
+            'total_users': total_users,
+            'total_prompts': total_prompts,
+            'total_personas': total_personas,
+            'total_tests': total_tests
+        }
+        
+        # Get recent activity (simplified for now)
+        recent_activity = [
+            {
+                'icon': 'user-plus',
+                'description': f'{total_users} total users registered',
+                'timestamp': 'System stats'
+            },
+            {
+                'icon': 'file-text',
+                'description': f'{total_prompts} system prompts available',
+                'timestamp': 'System stats'
+            },
+            {
+                'icon': 'user-circle',
+                'description': f'{total_personas} AI personas created',
+                'timestamp': 'System stats'
+            }
+        ]
+        
+        return render_template('admin_dashboard.html', stats=stats, recent_activity=recent_activity)
+        
+    except Exception as e:
+        logger.error(f"Error loading admin dashboard: {e}")
+        flash('Error loading dashboard', 'error')
+        return render_template('admin_dashboard.html', stats={'total_users': 0, 'total_prompts': 0, 'total_personas': 0, 'total_tests': 0}, recent_activity=[])
+
+@app.route("/admin/users")
+def admin_users():
+    """
+    User preferences management page.
+    """
+    try:
+        # Get all user preferences with related persona names
+        users = db.session.query(UserPreferences).all()
+        
+        # Prepare user data with persona names
+        user_data = []
+        for user in users:
+            active_persona_name = None
+            ab_persona_a_name = None
+            ab_persona_b_name = None
+            
+            if user.active_persona_id:
+                active_persona = AIPersona.query.get(user.active_persona_id)
+                active_persona_name = active_persona.name if active_persona else None
+                
+            if user.ab_testing_persona_a_id:
+                persona_a = AIPersona.query.get(user.ab_testing_persona_a_id)
+                ab_persona_a_name = persona_a.name if persona_a else None
+                
+            if user.ab_testing_persona_b_id:
+                persona_b = AIPersona.query.get(user.ab_testing_persona_b_id)
+                ab_persona_b_name = persona_b.name if persona_b else None
+            
+            user_data.append({
+                'user_id': user.user_id,
+                'chat_mode_enabled': user.chat_mode_enabled,
+                'active_persona': active_persona_name,
+                'ab_persona_a': ab_persona_a_name,
+                'ab_persona_b': ab_persona_b_name,
+                'created_at': user.created_at,
+                'updated_at': user.updated_at,
+                'active_persona_id': user.active_persona_id,
+                'ab_testing_persona_a_id': user.ab_testing_persona_a_id,
+                'ab_testing_persona_b_id': user.ab_testing_persona_b_id
+            })
+        
+        # Get all available personas for the edit form
+        available_personas = AIPersona.query.all()
+        
+        return render_template('admin_users.html', users=user_data, available_personas=available_personas)
+        
+    except Exception as e:
+        logger.error(f"Error loading users page: {e}")
+        flash('Error loading users', 'error')
+        return render_template('admin_users.html', users=[], available_personas=[])
+
+@app.route("/admin/users/<user_id>", methods=['GET'])
+def admin_user_get(user_id):
+    """
+    Get specific user data for editing.
+    """
+    try:
+        user = UserPreferences.query.filter_by(user_id=user_id).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        return jsonify({
+            'user_id': user.user_id,
+            'chat_mode_enabled': user.chat_mode_enabled,
+            'active_persona_id': user.active_persona_id,
+            'ab_testing_persona_a_id': user.ab_testing_persona_a_id,
+            'ab_testing_persona_b_id': user.ab_testing_persona_b_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting user {user_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/users/<user_id>", methods=['POST'])
+def admin_user_update(user_id):
+    """
+    Update user preferences.
+    """
+    try:
+        user = UserPreferences.query.filter_by(user_id=user_id).first()
+        if not user:
+            flash('User not found', 'error')
+            return redirect(url_for('admin_users'))
+        
+        # Update fields
+        user.chat_mode_enabled = 'chat_mode_enabled' in request.form
+        user.active_persona_id = request.form.get('active_persona_id') or None
+        user.ab_testing_persona_a_id = request.form.get('ab_testing_persona_a_id') or None
+        user.ab_testing_persona_b_id = request.form.get('ab_testing_persona_b_id') or None
+        user.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        flash(f'Updated preferences for user {user_id}', 'success')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error updating user {user_id}: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/users/<user_id>", methods=['DELETE'])
+def admin_user_delete(user_id):
+    """
+    Delete user preferences.
+    """
+    try:
+        user = UserPreferences.query.filter_by(user_id=user_id).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        db.session.delete(user)
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error deleting user {user_id}: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/prompts")
+def admin_prompts():
+    """
+    System prompts management page.
+    """
+    try:
+        prompts = SystemPrompt.query.order_by(SystemPrompt.is_default.desc(), SystemPrompt.usage_count.desc()).all()
+        return render_template('admin_prompts.html', prompts=prompts)
+        
+    except Exception as e:
+        logger.error(f"Error loading prompts page: {e}")
+        flash('Error loading prompts', 'error')
+        return render_template('admin_prompts.html', prompts=[])
+
+@app.route("/admin/prompts/create", methods=['GET', 'POST'])
+def admin_prompts_create():
+    """
+    Create new system prompt.
+    """
+    if request.method == 'POST':
+        try:
+            title = request.form.get('title')
+            description = request.form.get('description')
+            user_id = request.form.get('user_id')
+            content = request.form.get('content')
+            is_default = 'is_default' in request.form
+            
+            if not all([title, user_id, content]):
+                flash('Title, User ID, and Content are required', 'error')
+                return render_template('admin_prompts_create.html')
+            
+            # Use SystemPromptManager to create the prompt
+            prompt = SystemPromptManager.create_prompt(
+                user_id=user_id,
+                title=title,
+                content=content,
+                description=description
+            )
+            
+            if not prompt:
+                flash('Failed to create prompt. Title might already exist for this user.', 'error')
+                return render_template('admin_prompts_create.html')
+            
+            # Update is_default if needed
+            if is_default:
+                system_prompt = SystemPrompt.query.get(prompt['id'])
+                system_prompt.is_default = True
+                db.session.commit()
+            
+            flash(f'Successfully created prompt "{title}"', 'success')
+            return redirect(url_for('admin_prompts'))
+            
+        except Exception as e:
+            logger.error(f"Error creating prompt: {e}")
+            flash('Error creating prompt', 'error')
+            return render_template('admin_prompts_create.html')
+    
+    return render_template('admin_prompts_create.html')
+
+@app.route("/admin/prompts/<int:prompt_id>", methods=['GET'])
+def admin_prompt_get(prompt_id):
+    """
+    Get specific prompt data.
+    """
+    try:
+        prompt = SystemPrompt.query.get_or_404(prompt_id)
+        return jsonify({
+            'id': prompt.id,
+            'title': prompt.title,
+            'description': prompt.description,
+            'content': prompt.content,
+            'user_id': prompt.user_id,
+            'is_default': prompt.is_default,
+            'usage_count': prompt.usage_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting prompt {prompt_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/prompts/<int:prompt_id>", methods=['POST'])
+def admin_prompt_update(prompt_id):
+    """
+    Update system prompt.
+    """
+    try:
+        prompt = SystemPrompt.query.get_or_404(prompt_id)
+        
+        prompt.title = request.form.get('title', prompt.title)
+        prompt.description = request.form.get('description', prompt.description)
+        prompt.content = request.form.get('content', prompt.content)
+        prompt.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error updating prompt {prompt_id}: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/prompts/<int:prompt_id>", methods=['DELETE'])
+def admin_prompt_delete(prompt_id):
+    """
+    Delete system prompt.
+    """
+    try:
+        prompt = SystemPrompt.query.get_or_404(prompt_id)
+        
+        # Check if prompt is in use by any personas
+        personas_using = AIPersona.query.filter_by(system_prompt_id=prompt_id).count()
+        if personas_using > 0:
+            return jsonify({'error': f'Cannot delete prompt. It is being used by {personas_using} personas.'}), 400
+        
+        db.session.delete(prompt)
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error deleting prompt {prompt_id}: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/personas")
+def admin_personas():
+    """
+    AI personas management page.
+    """
+    try:
+        # Query directly since PersonaManager.get_user_personas expects specific user
+        personas_query = AIPersona.query.order_by(AIPersona.is_favorite.desc(), AIPersona.usage_count.desc()).all()
+        personas = [PersonaManager._persona_to_dict(p) for p in personas_query]
+        
+        # Get available prompts for editing
+        available_prompts = SystemPrompt.query.all()
+        
+        return render_template('admin_personas.html', personas=personas, available_prompts=available_prompts)
+        
+    except Exception as e:
+        logger.error(f"Error loading personas page: {e}")
+        flash('Error loading personas', 'error')
+        return render_template('admin_personas.html', personas=[], available_prompts=[])
+
+@app.route("/admin/personas/create", methods=['GET', 'POST'])
+def admin_personas_create():
+    """
+    Create new AI persona.
+    """
+    if request.method == 'POST':
+        try:
+            name = request.form.get('name')
+            description = request.form.get('description')
+            user_id = request.form.get('user_id')
+            model = request.form.get('model')
+            temperature = float(request.form.get('temperature', 0.7))
+            system_prompt_id = int(request.form.get('system_prompt_id'))
+            
+            if not all([name, user_id, model, system_prompt_id]):
+                flash('Name, User ID, Model, and System Prompt are required', 'error')
+                return render_template('admin_personas_create.html', available_prompts=SystemPrompt.query.all())
+            
+            # Use PersonaManager to create the persona
+            persona = PersonaManager.create_persona(
+                user_id=user_id,
+                name=name,
+                model=model,
+                temperature=temperature,
+                system_prompt_id=system_prompt_id,
+                description=description
+            )
+            
+            if not persona:
+                flash('Failed to create persona. Name might already exist for this user.', 'error')
+                return render_template('admin_personas_create.html', available_prompts=SystemPrompt.query.all())
+            
+            flash(f'Successfully created persona "{name}"', 'success')
+            return redirect(url_for('admin_personas'))
+            
+        except Exception as e:
+            logger.error(f"Error creating persona: {e}")
+            flash('Error creating persona', 'error')
+            return render_template('admin_personas_create.html', available_prompts=SystemPrompt.query.all())
+    
+    available_prompts = SystemPrompt.query.all()
+    return render_template('admin_personas_create.html', available_prompts=available_prompts)
+
+@app.route("/admin/personas/<int:persona_id>", methods=['GET'])
+def admin_persona_get(persona_id):
+    """
+    Get specific persona data.
+    """
+    try:
+        persona = AIPersona.query.get_or_404(persona_id)
+        persona_dict = PersonaManager._persona_to_dict(persona)
+        return jsonify(persona_dict)
+        
+    except Exception as e:
+        logger.error(f"Error getting persona {persona_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/personas/<int:persona_id>", methods=['POST'])
+def admin_persona_update(persona_id):
+    """
+    Update AI persona.
+    """
+    try:
+        name = request.form.get('name')
+        description = request.form.get('description')
+        model = request.form.get('model')
+        temperature = float(request.form.get('temperature', 0.7)) if request.form.get('temperature') else None
+        system_prompt_id = int(request.form.get('system_prompt_id')) if request.form.get('system_prompt_id') else None
+        
+        # Use PersonaManager to update
+        success = PersonaManager.update_persona(
+            persona_id=persona_id,
+            user_id="ADMIN_UPDATE",  # We'll bypass user validation in admin
+            name=name,
+            model=model,
+            temperature=temperature,
+            system_prompt_id=system_prompt_id,
+            description=description
+        )
+        
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Failed to update persona'}), 400
+            
+    except Exception as e:
+        logger.error(f"Error updating persona {persona_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route("/admin/personas/<int:persona_id>", methods=['DELETE'])
+def admin_persona_delete(persona_id):
+    """
+    Delete AI persona.
+    """
+    try:
+        persona = AIPersona.query.get_or_404(persona_id)
+        
+        # Check if persona is in use by user preferences
+        active_users = UserPreferences.query.filter_by(active_persona_id=persona_id).count()
+        ab_a_users = UserPreferences.query.filter_by(ab_testing_persona_a_id=persona_id).count()
+        ab_b_users = UserPreferences.query.filter_by(ab_testing_persona_b_id=persona_id).count()
+        
+        total_usage = active_users + ab_a_users + ab_b_users
+        if total_usage > 0:
+            return jsonify({'error': f'Cannot delete persona. It is being used by {total_usage} user configurations.'}), 400
+        
+        db.session.delete(persona)
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error deleting persona {persona_id}: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
